@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.pnpm/
+pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+logs/
+*.log
+
+# Build artifacts
+dist/
+apps/**/dist/
+.next/
+apps/**/.next/
+out/
+build/
+coverage/
+*.tsbuildinfo
+*.tgz
+
+# Caches
+.turbo/
+.turbodir/
+.cache/
+**/.cache/
+turbo.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.schema
+!.env.template
+
+# Database files
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# IDE and editor directories
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+
+# Misc
+.DS_Store
+Thumbs.db
+*.pid
+*.seed

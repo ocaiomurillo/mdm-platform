@@ -1,0 +1,94 @@
+﻿version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    container_name: mdm_db
+    environment:
+      POSTGRES_USER: mdm
+      POSTGRES_PASSWORD: mdm
+      POSTGRES_DB: mdm
+    ports:
+      - "5432:5432"
+    volumes:
+      - mdm_pg_data:/var/lib/postgresql/data
+
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: mdm_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+  api:
+    image: node:20-alpine
+    container_name: mdm_api
+    working_dir: /workspace
+    env_file:
+      - ../../apps/api/.env
+    environment:
+      DATABASE_URL: postgres://mdm:mdm@db:5432/mdm
+      PORT: "3001"
+      HOST: 0.0.0.0
+      CHOKIDAR_USEPOLLING: "true"
+      CI: "true"                     # <- suprime prompts
+    command: >
+      sh -lc "
+        apk add --no-cache python3 make g++ libc6-compat &&
+        corepack enable &&
+        corepack prepare pnpm@9.12.0 --activate &&
+        pnpm -v &&
+        pnpm install --no-frozen-lockfile --force &&
+        pnpm -F @mdm/api exec node -e \"require.resolve('@nestjs/cli/bin/nest.js')\" &&
+        pnpm -F @mdm/api dev
+      "
+    volumes:
+      - ../../:/workspace
+      - workspace_node_modules:/workspace/node_modules          # << NOVO (raiz)
+      - api_node_modules:/workspace/apps/api/node_modules
+      - pnpm_store:/root/.local/share/pnpm
+    ports:
+      - "3001:3001"
+    depends_on:
+      - db
+
+  web:
+    image: node:20-alpine
+    container_name: mdm_web
+    working_dir: /workspace
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:3001
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: 1x00000000000000000000AA
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      CI: "true"                     # <- suprime prompts
+    command: >
+      sh -lc "
+        apk add --no-cache python3 make g++ libc6-compat &&
+        corepack enable &&
+        corepack prepare pnpm@9.12.0 --activate &&
+        pnpm -v &&
+        pnpm install --no-frozen-lockfile --force &&
+        pnpm -F @mdm/web exec node -e \"require.resolve('next/dist/bin/next')\" &&
+        pnpm -F @mdm/web dev -- --hostname 0.0.0.0 --port 3000
+      "
+    volumes:
+      - ../../:/workspace
+      - workspace_node_modules:/workspace/node_modules          # << NOVO (raiz)
+      - web_node_modules:/workspace/apps/web/node_modules
+      - pnpm_store:/root/.local/share/pnpm
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  mdm_pg_data:
+  pnpm_store:
+  workspace_node_modules:   # << NOVO
+  api_node_modules:
+  web_node_modules:

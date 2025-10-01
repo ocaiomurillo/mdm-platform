@@ -1,0 +1,105 @@
+﻿import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { ApiTags } from "@nestjs/swagger";
+import { CreatePartnerDto } from "./dto/create-partner.dto";
+import { ChangeRequestListQueryDto, CreateBulkChangeRequestDto, CreateChangeRequestDto } from "./dto/change-request.dto";
+import { PartnersService } from "./partners.service";
+
+class AuditRequestDto {
+  partnerIds!: string[];
+  requestedBy?: string;
+}
+
+class AuditSingleDto {
+  requestedBy?: string;
+}
+
+@ApiTags("partners")
+@Controller("partners")
+export class PartnersController {
+  constructor(private readonly svc: PartnersService) {}
+
+  @Post()
+  create(@Body() dto: CreatePartnerDto) {
+    return this.svc.create(dto);
+  }
+
+  @Get()
+  findAll(@Query("search") search?: string, @Query("status") status?: string) {
+    return this.svc.findAll({ search, status });
+  }
+
+  @Get("search")
+  search(@Query("q") q?: string, @Query() query?: Record<string, string>) {
+    const filters = { ...query };
+    delete filters.q;
+    return this.svc.search({ q, filters });
+  }
+
+  @Get(":id/details")
+  getDetails(@Param("id") id: string) {
+    return this.svc.getDetails(id);
+  }
+
+  @Post(":id/change-requests")
+  createChangeRequest(@Param("id") id: string, @Body() dto: CreateChangeRequestDto) {
+    return this.svc.createChangeRequest(id, dto);
+  }
+
+  @Post("change-requests/bulk")
+  createBulkChangeRequests(@Body() dto: CreateBulkChangeRequestDto) {
+    return this.svc.createBulkChangeRequests(dto);
+  }
+
+  @Get(":id/change-requests")
+  listChangeRequests(@Param("id") id: string, @Query() query: ChangeRequestListQueryDto) {
+    return this.svc.listChangeRequests(id, query);
+  }
+
+  @Post(":id/audit")
+  requestAuditForPartner(@Param("id") id: string, @Body() body: AuditSingleDto) {
+    return this.svc.requestAudit([id], body?.requestedBy);
+  }
+
+  @Post("audit")
+  requestAudit(@Body() body: AuditRequestDto) {
+    const { partnerIds = [], requestedBy } = body || {};
+    return this.svc.requestAudit(partnerIds, requestedBy);
+  }
+
+  @Get("audit/:jobId")
+  getAuditJob(@Param("jobId") jobId: string) {
+    return this.svc.getAuditJob(jobId);
+  }
+
+  @Get("cnpj/:cnpj")
+  lookupCnpj(@Param("cnpj") cnpj: string) {
+    return this.svc.lookupCnpj(cnpj);
+  }
+
+  @Get("cpf/:cpf")
+  lookupCpf(@Param("cpf") cpf: string) {
+    return this.svc.lookupCpf(cpf);
+  }
+
+  @Get(":id")
+  findOne(@Param("id") id: string) {
+    return this.svc.findOne(id);
+  }
+
+  @Post(":id/submit")
+  submit(@Param("id") id: string) {
+    return this.svc.submit(id);
+  }
+
+  @Post(":id/approve")
+  approve(@Param("id") id: string) {
+    return this.svc.approve(id);
+  }
+
+  @Post(":id/reject")
+  reject(@Param("id") id: string) {
+    return this.svc.reject(id);
+  }
+}
+
+

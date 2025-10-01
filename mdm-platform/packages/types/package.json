@@ -1,0 +1,8 @@
+{
+  "name": "@mdm/types",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "zod": "^3.23.8"
+  }
+}
