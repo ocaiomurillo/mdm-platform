@@ -1,5 +1,6 @@
-﻿import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
-import { ApiTags } from "@nestjs/swagger";
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import { AuthGuard } from "@nestjs/passport";
 import { CreatePartnerDto } from "./dto/create-partner.dto";
 import { ChangeRequestListQueryDto, CreateBulkChangeRequestDto, CreateChangeRequestDto } from "./dto/change-request.dto";
 import { PartnersService } from "./partners.service";
@@ -14,6 +15,8 @@ class AuditSingleDto {
 }
 
 @ApiTags("partners")
+@ApiBearerAuth()
+@UseGuards(AuthGuard("jwt"))
 @Controller("partners")
 export class PartnersController {
   constructor(private readonly svc: PartnersService) {}
@@ -101,5 +104,4 @@ export class PartnersController {
     return this.svc.reject(id);
   }
 }
-
 

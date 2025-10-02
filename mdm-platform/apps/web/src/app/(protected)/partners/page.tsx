@@ -1,6 +1,7 @@
 ﻿"use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import { useRouter } from "next/navigation";
 
 const ALL_COLUMNS = [
   { id: "mdm_partner_id", label: "ID MDM", accessor: (p: any) => p.mdmPartnerId ?? p.mdm_partner_id ?? "-" },
@@ -36,6 +37,7 @@ function loadStoredColumns(): string[] | null {
 }
 
 export default function PartnersList() {
+  const router = useRouter();
   const [partners, setPartners] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +71,13 @@ export default function PartnersList() {
     setLoading(true);
     setError(null);
     try {
+      const token = localStorage.getItem("mdmToken");
+      if (!token) {
+        router.replace("/login");
+        setLoading(false);
+        return;
+      }
+
       const params: Record<string, string> = {};
       if (debouncedSearch) params.q = debouncedSearch;
       if (naturezaFilter !== "all") params.natureza = naturezaFilter;
@@ -77,15 +86,22 @@ export default function PartnersList() {
 
       const query = new URLSearchParams(params).toString();
       const url = `${process.env.NEXT_PUBLIC_API_URL}/partners/search${query ? `?${query}` : ""}`;
-      const response = await axios.get(url);
+      const response = await axios.get(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       setPartners(response.data);
     } catch (err: any) {
+      if (err?.response?.status === 401) {
+        localStorage.removeItem("mdmToken");
+        router.replace("/login");
+        return;
+      }
       const message = err?.response?.data?.message;
       setError(typeof message === "string" ? message : "Não foi possível carregar os parceiros.");
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch, naturezaFilter, statusFilter, sapFilter]);
+  }, [debouncedSearch, naturezaFilter, router, sapFilter, statusFilter]);
 
   useEffect(() => {
     fetchPartners();

@@ -1,6 +1,7 @@
-﻿"use client";
+"use client";
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import { useRouter } from "next/navigation";
 
 const statusLabels: Record<string, string> = {
   draft: "Rascunhos",
@@ -27,6 +28,7 @@ const initialMetrics: Metrics = {
 };
 
 export default function Dashboard() {
+  const router = useRouter();
   const [metrics, setMetrics] = useState<Metrics>(initialMetrics);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,9 +36,13 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchMetrics = async () => {
       const token = localStorage.getItem("mdmToken");
+      if (!token) {
+        router.replace("/login");
+        return;
+      }
       try {
         const response = await axios.get<Partner[]>(`${process.env.NEXT_PUBLIC_API_URL}/partners`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined
+          headers: { Authorization: `Bearer ${token}` }
         });
         const data = response.data || [];
         const aggregated = data.reduce<Metrics>((acc, partner) => {
@@ -50,6 +56,11 @@ export default function Dashboard() {
         setMetrics(aggregated);
         setError(null);
       } catch (err: any) {
+        if (err?.response?.status === 401) {
+          localStorage.removeItem("mdmToken");
+          router.replace("/login");
+          return;
+        }
         const message = err?.response?.data?.message;
         setError(typeof message === "string" ? message : "Não foi possível carregar os dados.");
       } finally {
@@ -58,7 +69,7 @@ export default function Dashboard() {
     };
 
     fetchMetrics();
-  }, []);
+  }, [router]);
 
   const cards = useMemo(() => (
     Object.entries(statusLabels).map(([key, label]) => ({
