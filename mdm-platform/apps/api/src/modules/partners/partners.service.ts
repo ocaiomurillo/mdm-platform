@@ -1,4 +1,4 @@
-﻿import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { randomUUID } from "crypto";
 import { Brackets, In, Repository } from "typeorm";
@@ -14,8 +14,7 @@ import { PartnerAuditJob } from "./entities/partner-audit-job.entity";
 import { PartnerAuditLog } from "./entities/partner-audit-log.entity";
 import { PartnerChangeRequest } from "./entities/partner-change-request.entity";
 import { changeRequestFieldDefinitions, ChangeRequestOrigin, ChangeRequestPayload } from "@mdm/types";
-
-const sanitizeDigits = (value: string) => value.replace(/\D+/g, "");
+import { onlyDigits, validateCNPJ, validateCPF } from "@mdm/utils";
 
 @Injectable()
 export class PartnersService {
@@ -29,11 +28,17 @@ export class PartnersService {
   ) {}
 
   async create(dto: CreatePartnerDto) {
+    const documento = onlyDigits(dto.documento);
+    const duplicate = await this.repo.findOne({ where: { documento } });
+    if (duplicate) {
+      throw new BadRequestException("Documento ja cadastrado");
+    }
+
     const partner = this.repo.create({
       ...dto,
       sapBusinessPartnerId: (dto as any).sap_bp_id,
       status: "draft",
-      documento: sanitizeDigits(dto.documento),
+      documento,
       comunicacao: dto.comunicacao ?? {},
       fornecedor_info: dto.fornecedor_info ?? {},
       vendas_info: dto.vendas_info ?? {},
@@ -320,9 +325,14 @@ export class PartnersService {
   }
 
   async lookupCnpj(rawCnpj: string) {
-    const cnpj = sanitizeDigits(rawCnpj);
-    if (cnpj.length !== 14) {
+    const cnpj = onlyDigits(rawCnpj);
+    if (!validateCNPJ(cnpj)) {
       throw new BadRequestException("CNPJ invalido");
+    }
+
+    const existing = await this.repo.findOne({ where: { documento: cnpj } });
+    if (existing) {
+      throw new BadRequestException("CNPJ ja cadastrado");
     }
 
     try {
@@ -334,9 +344,14 @@ export class PartnersService {
   }
 
   async lookupCpf(rawCpf: string) {
-    const cpf = sanitizeDigits(rawCpf);
-    if (cpf.length !== 11) {
+    const cpf = onlyDigits(rawCpf);
+    if (!validateCPF(cpf)) {
       throw new BadRequestException("CPF invalido");
+    }
+
+    const existing = await this.repo.findOne({ where: { documento: cpf } });
+    if (existing) {
+      throw new BadRequestException("CPF ja cadastrado");
     }
 
     return {

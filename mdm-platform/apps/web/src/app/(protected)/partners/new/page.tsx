@@ -5,7 +5,14 @@ import { useForm, useFieldArray } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
-import { onlyDigits } from "@mdm/utils";
+import {
+  onlyDigits,
+  validateCEP,
+  validateCNPJ,
+  validateCPF,
+  validateIbgeCode,
+  validateIE
+} from "@mdm/utils";
 
 const emailSchema = z.object({
   endereco: z.string().email("Email inválido"),
@@ -23,10 +30,11 @@ const transportSchema = z.object({
   sap_bp: z.string().min(1, "Informe o código BP")
 });
 
-const schema = z.object({
+const schema = z
+  .object({
   tipo_pessoa: z.enum(["PJ", "PF"]),
   natureza: z.enum(["cliente", "fornecedor", "ambos"]),
-  documento: z.string().min(11, "Informe um documento válido"),
+  documento: z.string().min(1, "Informe o documento"),
   nome_legal: z.string().min(2, "Informe o nome legal"),
   nome_fantasia: z.string().optional(),
   contato_nome: z.string().min(2, "Informe o responsável"),
@@ -39,13 +47,24 @@ const schema = z.object({
   im: z.string().optional(),
   suframa: z.string().optional(),
   regime_tributario: z.string().optional(),
-  cep: z.string().min(8, "Informe o CEP"),
+  cep: z
+    .string()
+    .min(1, "Informe o CEP")
+    .refine((value) => validateCEP(value), "CEP inválido"),
   logradouro: z.string().min(2, "Informe o logradouro"),
   numero: z.string().min(1, "Informe o número"),
   complemento: z.string().optional(),
   bairro: z.string().min(2, "Informe o bairro"),
   municipio: z.string().min(2, "Informe o município"),
-  municipio_ibge: z.string().optional(),
+  municipio_ibge: z
+    .string()
+    .optional()
+    .superRefine((value, ctx) => {
+      if (!value || !value.trim()) return;
+      if (!validateIbgeCode(value)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Código IBGE inválido" });
+      }
+    }),
   uf: z.string().length(2, "Informe apenas a sigla da UF"),
   banks: z.array(bankSchema).min(1, "Inclua ao menos uma conta"),
   fornecedor_grupo: z.string().optional(),
@@ -63,7 +82,23 @@ const schema = z.object({
     .optional()
     .transform((value) => (value && value.trim().length ? value : undefined)),
   credito_validade: z.string().optional()
-});
+})
+  .superRefine((data, ctx) => {
+    const digits = onlyDigits(data.documento || "");
+    if (data.tipo_pessoa === "PJ") {
+      if (!validateCNPJ(digits)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["documento"], message: "CNPJ inválido" });
+      }
+    } else {
+      if (!validateCPF(digits)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["documento"], message: "CPF inválido" });
+      }
+    }
+
+    if (data.ie && !validateIE(data.ie, { allowIsento: true })) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ie"], message: "Inscrição estadual inválida" });
+    }
+  });
 
 type FormValues = z.infer<typeof schema>;
 
@@ -176,9 +211,9 @@ export default function NewPartner() {
   const handleLookupDocumento = async () => {
     const rawDoc = watch("documento") || "";
     const digits = onlyDigits(rawDoc);
-    const expectedLength = tipoPessoa === "PJ" ? 14 : 11;
-    if (digits.length !== expectedLength) {
-      setDocError(`Informe um ${tipoPessoa === "PJ" ? 'CNPJ' : 'CPF'} válido para buscar.`);
+    const isValidDocument = tipoPessoa === "PJ" ? validateCNPJ(digits) : validateCPF(digits);
+    if (!isValidDocument) {
+      setDocError(`Informe um ${tipoPessoa === "PJ" ? "CNPJ" : "CPF"} válido para buscar.`);
       return;
     }
     setDocError(null);

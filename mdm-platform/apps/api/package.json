@@ -5,9 +5,11 @@
     "dev": "nest start --watch",
     "build": "nest build",
     "start:prod": "node dist/main.js",
-    "migration:run": "ts-node --project tsconfig.json ./node_modules/typeorm/cli.js migration:run -d src/database/ormconfig.ts"
+    "migration:run": "ts-node --project tsconfig.json ./node_modules/typeorm/cli.js migration:run -d src/database/ormconfig.ts",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@mdm/utils": "workspace:*",
     "@mdm/types": "workspace:*",
     "@nestjs/common": "^10.0.0",
     "@nestjs/core": "^10.0.0",
