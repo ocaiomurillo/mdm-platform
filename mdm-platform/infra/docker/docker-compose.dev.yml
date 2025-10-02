@@ -1,4 +1,4 @@
-﻿version: "3.9"
+version: "3.9"
 
 services:
   db:
@@ -29,7 +29,7 @@ services:
     container_name: mdm_api
     working_dir: /workspace
     env_file:
-      - ../../apps/api/.env
+      - ../../apps/api/.env.local
     environment:
       DATABASE_URL: postgres://mdm:mdm@db:5432/mdm
       PORT: "3001"
@@ -42,8 +42,11 @@ services:
         corepack enable &&
         corepack prepare pnpm@9.12.0 --activate &&
         pnpm -v &&
-        pnpm install --no-frozen-lockfile --force &&
+        if [ ! -d /workspace/node_modules/.pnpm ]; then
+          pnpm install --frozen-lockfile
+        fi &&
         pnpm -F @mdm/api exec node -e \"require.resolve('@nestjs/cli/bin/nest.js')\" &&
+        pnpm -F @mdm/api build &&
         pnpm -F @mdm/api dev
       "
     volumes:
@@ -61,7 +64,7 @@ services:
     container_name: mdm_web
     working_dir: /workspace
     environment:
-      NEXT_PUBLIC_API_URL: http://api:3001
+      NEXT_PUBLIC_API_URL: http://localhost:3001
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: 1x00000000000000000000AA
       CHOKIDAR_USEPOLLING: "true"
       WATCHPACK_POLLING: "true"
@@ -72,9 +75,11 @@ services:
         corepack enable &&
         corepack prepare pnpm@9.12.0 --activate &&
         pnpm -v &&
-        pnpm install --no-frozen-lockfile --force &&
+        if [ ! -d /workspace/node_modules/.pnpm ]; then
+          pnpm install --frozen-lockfile
+        fi &&
         pnpm -F @mdm/web exec node -e \"require.resolve('next/dist/bin/next')\" &&
-        pnpm -F @mdm/web dev -- --hostname 0.0.0.0 --port 3000
+        pnpm -F @mdm/web exec next dev --hostname 0.0.0.0 --port 3000
       "
     volumes:
       - ../../:/workspace
