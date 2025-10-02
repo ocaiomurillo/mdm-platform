@@ -186,13 +186,22 @@ export default function NewPartner() {
 
     try {
       const token = localStorage.getItem("mdmToken");
+      if (!token) {
+        router.replace("/login");
+        return;
+      }
       const urlSuffix = tipoPessoa === "PJ" ? `cnpj/${digits}` : `cpf/${digits}`;
       const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/partners/${urlSuffix}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined
+        headers: { Authorization: `Bearer ${token}` }
       });
       const data = response.data as LookupResult;
       applyLookupData(data);
     } catch (error: any) {
+      if (error?.response?.status === 401) {
+        localStorage.removeItem("mdmToken");
+        router.replace("/login");
+        return;
+      }
       const message = error?.response?.data?.message;
       setDocError(typeof message === "string" ? message : "Não foi possível obter dados do documento.");
     } finally {
@@ -284,6 +293,11 @@ export default function NewPartner() {
       });
       router.push("/partners");
     } catch (error: any) {
+      if (error?.response?.status === 401) {
+        localStorage.removeItem("mdmToken");
+        router.replace("/login");
+        return;
+      }
       const message = error?.response?.data?.message;
       setSubmitError(typeof message === "string" ? message : "Não foi possível salvar o parceiro.");
     }

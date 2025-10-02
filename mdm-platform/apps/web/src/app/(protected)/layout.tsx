@@ -5,7 +5,7 @@ import { Home, Users, PlusSquare, LogOut } from "lucide-react";
 import { PropsWithChildren, useEffect, useMemo, useState } from "react";
 import { jwtDecode } from "jwt-decode";
 
-type TokenPayload = { email?: string; sub?: string; name?: string };
+type TokenPayload = { email?: string; sub?: string; name?: string; exp?: number };
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
@@ -25,13 +25,23 @@ export default function ProtectedLayout({ children }: PropsWithChildren) {
       router.replace("/login");
       return;
     }
+
     try {
       const payload = jwtDecode<TokenPayload>(token);
+      if (payload?.exp && payload.exp * 1000 < Date.now()) {
+        localStorage.removeItem("mdmToken");
+        router.replace("/login");
+        return;
+      }
+
       const raw = payload?.name || payload?.email || "Usuário";
       setDisplayName(raw.split("@")[0]);
     } catch (err) {
-      setDisplayName("Usuário");
+      localStorage.removeItem("mdmToken");
+      router.replace("/login");
+      return;
     }
+
     setReady(true);
   }, [router]);
 

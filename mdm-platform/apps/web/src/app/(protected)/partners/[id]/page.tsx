@@ -55,10 +55,22 @@ export default function PartnerDetailsPage() {
       setLoading(true);
       setError(null);
       try {
+        const token = localStorage.getItem("mdmToken");
+        if (!token) {
+          router.replace("/login");
+          return;
+        }
         const url = `${process.env.NEXT_PUBLIC_API_URL}/partners/${partnerId}/details`;
-        const response = await axios.get(url);
+        const response = await axios.get(url, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         setPartner(response.data?.partner ?? null);
       } catch (error: any) {
+        if (error?.response?.status === 401) {
+          localStorage.removeItem("mdmToken");
+          router.replace("/login");
+          return;
+        }
         const message = error?.response?.data?.message;
         setError(typeof message === "string" ? message : "Não foi possível carregar o parceiro.");
       } finally {
@@ -66,7 +78,7 @@ export default function PartnerDetailsPage() {
       }
     };
     fetchPartner();
-  }, [partnerId]);
+  }, [partnerId, router]);
 
   useEffect(() => {
     if (!partnerId) return;
@@ -74,10 +86,22 @@ export default function PartnerDetailsPage() {
       setRequestsLoading(true);
       setRequestsError(null);
       try {
+        const token = localStorage.getItem("mdmToken");
+        if (!token) {
+          router.replace("/login");
+          return;
+        }
         const url = `${process.env.NEXT_PUBLIC_API_URL}/partners/${partnerId}/change-requests?page=1&pageSize=10`;
-        const response = await axios.get(url);
+        const response = await axios.get(url, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         setChangeRequests(response.data?.items ?? []);
       } catch (error: any) {
+        if (error?.response?.status === 401) {
+          localStorage.removeItem("mdmToken");
+          router.replace("/login");
+          return;
+        }
         const message = error?.response?.data?.message;
         setRequestsError(typeof message === "string" ? message : "Não foi possível carregar as solicitações.");
       } finally {
@@ -85,7 +109,7 @@ export default function PartnerDetailsPage() {
       }
     };
     fetchRequests();
-  }, [partnerId]);
+  }, [partnerId, router]);
 
   const selectedPartnerSummary = useMemo(() => {
     if (!partner) return [] as Array<{ label: string; value: string }>;
