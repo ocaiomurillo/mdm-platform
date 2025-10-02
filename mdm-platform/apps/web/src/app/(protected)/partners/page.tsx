@@ -2,6 +2,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useRouter } from "next/navigation";
+import { PartnerApprovalStage } from "@mdm/types";
+import { getStoredUser, StoredUser } from "../../../lib/auth";
+
+const stageLabels: Record<PartnerApprovalStage, string> = {
+  fiscal: "Fiscal",
+  compras: "Compras/Vendas",
+  dados_mestres: "Dados Mestres",
+  finalizado: "Concluído"
+};
+
+const stagePermissions: Record<PartnerApprovalStage, string | null> = {
+  fiscal: "partners.approval.fiscal",
+  compras: "partners.approval.compras",
+  dados_mestres: "partners.approval.dados_mestres",
+  finalizado: null
+};
 
 const ALL_COLUMNS = [
   { id: "mdm_partner_id", label: "ID MDM", accessor: (p: any) => p.mdmPartnerId ?? p.mdm_partner_id ?? "-" },
@@ -11,6 +27,11 @@ const ALL_COLUMNS = [
   { id: "natureza", label: "Natureza", accessor: (p: any) => p.natureza },
   { id: "tipo_pessoa", label: "Tipo", accessor: (p: any) => p.tipo_pessoa },
   { id: "status", label: "Status", accessor: (p: any) => p.status },
+  {
+    id: "approval_stage",
+    label: "Etapa",
+    accessor: (p: any) => stageLabels[(p.approvalStage || "fiscal") as PartnerApprovalStage] ?? "-"
+  },
   { id: "uf", label: "UF", accessor: (p: any) => {
       const addr = (p.addresses || []).find((a: any) => a.tipo === "fiscal") || p.addresses?.[0];
       return addr?.uf || "-";
@@ -41,6 +62,7 @@ export default function PartnersList() {
   const [partners, setPartners] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<StoredUser | null>(null);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -49,7 +71,9 @@ export default function PartnersList() {
   const [sapFilter, setSapFilter] = useState<string>("all");
 
   const [showColumnPicker, setShowColumnPicker] = useState(false);
-  const [selectedColumns, setSelectedColumns] = useState<string[]>(() => loadStoredColumns() || ["mdm_partner_id", "sap_bp_id", "nome_legal", "documento", "status"]);
+  const [selectedColumns, setSelectedColumns] = useState<string[]>(
+    () => loadStoredColumns() || ["mdm_partner_id", "sap_bp_id", "nome_legal", "documento", "status", "approval_stage"]
+  );
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -57,6 +81,10 @@ export default function PartnersList() {
     }, 400);
     return () => clearTimeout(handler);
   }, [search]);
+
+  useEffect(() => {
+    setCurrentUser(getStoredUser());
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -227,22 +255,42 @@ export default function PartnersList() {
                 <td colSpan={columns.length + 1} className="px-4 py-6 text-center text-sm text-zinc-500">Nenhum parceiro encontrado.</td>
               </tr>
             ) : (
-              partners.map((partner) => (
-                <tr key={partner.id} className="hover:bg-zinc-50">
-                  {columns.map((column) => (
-                    <td key={column.id} className="px-4 py-3 text-sm text-zinc-700">
-                      {column.accessor(partner)}
+              partners.map((partner) => {
+                const stage = (partner.approvalStage || "fiscal") as PartnerApprovalStage;
+                const permission = stagePermissions[stage];
+                const canAct =
+                  partner.status === "em_validacao" &&
+                  permission !== null &&
+                  currentUser?.responsibilities?.includes(permission);
+                return (
+                  <tr
+                    key={partner.id}
+                    className={`transition-colors ${canAct ? "bg-indigo-50 hover:bg-indigo-100" : "hover:bg-zinc-50"}`}
+                  >
+                    {columns.map((column) => (
+                      <td key={column.id} className="px-4 py-3 text-sm text-zinc-700">
+                        {column.id === "approval_stage" && canAct ? (
+                          <span className="inline-flex items-center gap-2">
+                            <span>{column.accessor(partner)}</span>
+                            <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                              Você pode aprovar
+                            </span>
+                          </span>
+                        ) : (
+                          column.accessor(partner)
+                        )}
+                      </td>
+                    ))}
+                    <td className="px-4 py-3 text-xs">
+                      {partner.sapBusinessPartnerId || partner.sap_bp_id ? (
+                        <span className="rounded-full bg-emerald-100 px-2 py-1 font-medium text-emerald-700">SAP</span>
+                      ) : (
+                        <span className="rounded-full bg-zinc-100 px-2 py-1 font-medium text-zinc-600">MDM</span>
+                      )}
                     </td>
-                  ))}
-                  <td className="px-4 py-3 text-xs">
-                    {partner.sapBusinessPartnerId || partner.sap_bp_id ? (
-                      <span className="rounded-full bg-emerald-100 px-2 py-1 font-medium text-emerald-700">SAP</span>
-                    ) : (
-                      <span className="rounded-full bg-zinc-100 px-2 py-1 font-medium text-zinc-600">MDM</span>
-                    )}
-                  </td>
-                </tr>
-              ))
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

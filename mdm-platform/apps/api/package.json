@@ -6,6 +6,7 @@
     "build": "nest build",
     "start:prod": "node dist/main.js",
     "migration:run": "ts-node --project tsconfig.json ./node_modules/typeorm/cli.js migration:run -d src/database/ormconfig.ts",
+    "seed:profiles": "ts-node --project tsconfig.json src/database/seeds/seed-profiles.ts",
     "test": "vitest run"
   },
   "dependencies": {

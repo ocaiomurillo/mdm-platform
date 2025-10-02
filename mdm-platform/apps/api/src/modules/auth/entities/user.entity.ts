@@ -1,4 +1,4 @@
-﻿import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, Unique, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, Unique, UpdateDateColumn } from 'typeorm';
 
 @Entity('users')
 @Unique(['email'])
@@ -11,6 +11,15 @@ export class User {
 
   @Column({ name: 'password_hash' })
   passwordHash!: string;
+
+  @Column({ name: 'display_name', nullable: true })
+  displayName?: string;
+
+  @Column({ nullable: true })
+  profile?: string;
+
+  @Column('jsonb', { default: [] })
+  responsibilities!: string[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

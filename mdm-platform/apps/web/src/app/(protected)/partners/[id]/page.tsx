@@ -3,8 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import axios from "axios";
-import type { Partner } from "@mdm/types";
+import type { Partner, PartnerApprovalHistoryEntry, PartnerApprovalStage } from "@mdm/types";
 import { ChangeRequestPayload } from "@mdm/types";
+import { getStoredUser, storeUser, StoredUser } from "../../../../lib/auth";
 
 type ChangeRequestItem = {
   id: string;
@@ -29,6 +30,61 @@ const typeLabels: Record<string, string> = {
   auditoria: "Auditoria"
 };
 
+const workflowStages: PartnerApprovalStage[] = ["fiscal", "compras", "dados_mestres"];
+
+const stageLabels: Record<PartnerApprovalStage, string> = {
+  fiscal: "Fiscal",
+  compras: "Compras/Vendas",
+  dados_mestres: "Dados Mestres",
+  finalizado: "Concluído"
+};
+
+const stagePermissions: Record<PartnerApprovalStage, string | null> = {
+  fiscal: "partners.approval.fiscal",
+  compras: "partners.approval.compras",
+  dados_mestres: "partners.approval.dados_mestres",
+  finalizado: null
+};
+
+const stageResponsibles: Record<PartnerApprovalStage, string> = {
+  fiscal: "Equipe Fiscal",
+  compras: "Compras/Vendas",
+  dados_mestres: "Dados Mestres",
+  finalizado: "MDM"
+};
+
+const stageEndpoints: Record<PartnerApprovalStage, string | null> = {
+  fiscal: "fiscal",
+  compras: "compras",
+  dados_mestres: "dados-mestres",
+  finalizado: null
+};
+
+const actionLabels: Record<PartnerApprovalHistoryEntry["action"], string> = {
+  submitted: "Enviado",
+  approved: "Aprovado",
+  rejected: "Rejeitado"
+};
+
+type StageStatus = {
+  stage: PartnerApprovalStage;
+  state: "pending" | "current" | "complete" | "rejected";
+};
+
+const stageStateLabels: Record<StageStatus["state"], string> = {
+  pending: "Pendente",
+  current: "Em andamento",
+  complete: "Concluída",
+  rejected: "Rejeitada"
+};
+
+const stageStateStyles: Record<StageStatus["state"], string> = {
+  pending: "border-zinc-200 bg-white text-zinc-600",
+  current: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  complete: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  rejected: "border-red-200 bg-red-50 text-red-700"
+};
+
 const formatDateTime = (value?: string) => {
   if (!value) return "-";
   const date = new Date(value);
@@ -48,6 +104,10 @@ export default function PartnerDetailsPage() {
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState<string | null>(null);
   const [tab, setTab] = useState<"dados" | "solicitacoes">("dados");
+  const [currentUser, setCurrentUser] = useState<StoredUser | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!partnerId) return;
@@ -111,6 +171,10 @@ export default function PartnerDetailsPage() {
     fetchRequests();
   }, [partnerId, router]);
 
+  useEffect(() => {
+    setCurrentUser(getStoredUser());
+  }, []);
+
   const selectedPartnerSummary = useMemo(() => {
     if (!partner) return [] as Array<{ label: string; value: string }>;
     return [
@@ -118,9 +182,195 @@ export default function PartnerDetailsPage() {
       { label: "Nome fantasia", value: partner.nome_fantasia || "-" },
       { label: "Documento", value: partner.documento },
       { label: "Natureza", value: partner.natureza },
-      { label: "Status", value: partner.status }
+      { label: "Status", value: partner.status },
+      {
+        label: "Etapa atual",
+        value: stageLabels[(partner.approvalStage || "fiscal") as PartnerApprovalStage] ?? "Fiscal"
+      }
     ];
   }, [partner]);
+
+  const stageStatuses = useMemo<StageStatus[]>(() => {
+    if (!partner) return [];
+    const currentStage = (partner.approvalStage || "fiscal") as PartnerApprovalStage;
+    const currentIndex =
+      currentStage === "finalizado"
+        ? workflowStages.length
+        : Math.max(workflowStages.indexOf(currentStage), 0);
+    return workflowStages.map((stage, index) => {
+      const entries = (partner.approvalHistory || []).filter((entry) => entry.stage === stage);
+      const lastAction = entries[entries.length - 1]?.action;
+      if (partner.status === "rejeitado" && currentStage === stage) {
+        return { stage, state: "rejected" } as StageStatus;
+      }
+      if (lastAction === "rejected") {
+        return { stage, state: "rejected" } as StageStatus;
+      }
+      if (currentStage === stage && partner.status === "em_validacao") {
+        return { stage, state: "current" } as StageStatus;
+      }
+      if (index < currentIndex || lastAction === "approved" || partner.status === "aprovado") {
+        return { stage, state: "complete" } as StageStatus;
+      }
+      return { stage, state: "pending" } as StageStatus;
+    });
+  }, [partner]);
+
+  const pendingStages = useMemo(
+    () => stageStatuses.filter((item) => item.state === "current" || item.state === "pending"),
+    [stageStatuses]
+  );
+
+  const currentStage = (partner?.approvalStage || "fiscal") as PartnerApprovalStage;
+  const currentStagePermission = stagePermissions[currentStage];
+  const canSubmit = partner ? ["draft", "rejeitado"].includes(partner.status) : false;
+  const canApprove = Boolean(
+    partner &&
+      partner.status === "em_validacao" &&
+      currentStage !== "finalizado" &&
+      currentStagePermission &&
+      currentUser?.responsibilities?.includes(currentStagePermission)
+  );
+  const canReject = canApprove;
+
+  const pendingDescription = useMemo(() => {
+    if (!partner) return "";
+    if (partner.status === "aprovado" || partner.approvalStage === "finalizado") {
+      return "Fluxo concluído.";
+    }
+    if (partner.status === "rejeitado") {
+      return `Fluxo interrompido na etapa ${stageLabels[currentStage]} (${stageResponsibles[currentStage]}).`;
+    }
+    if (!pendingStages.length) {
+      return partner.status === "em_validacao"
+        ? "Aguardando próxima aprovação."
+        : "Envie o parceiro para validação para iniciar o fluxo.";
+    }
+    const descriptions = pendingStages.map(
+      (item) => `${stageLabels[item.stage]} (${stageResponsibles[item.stage]})`
+    );
+    return `Faltam aprovações: ${descriptions.join(", ")}.`;
+  }, [currentStage, partner, pendingStages]);
+
+  const sortedHistory = useMemo(() => {
+    if (!partner?.approvalHistory) return [] as PartnerApprovalHistoryEntry[];
+    return [...partner.approvalHistory].sort(
+      (a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime()
+    );
+  }, [partner]);
+
+  const handleSubmitPartner = async () => {
+    if (!partnerId || !process.env.NEXT_PUBLIC_API_URL) return;
+    setActionLoading(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      const token = localStorage.getItem("mdmToken");
+      if (!token) {
+        router.replace("/login");
+        return;
+      }
+      const response = await axios.post(
+        `${process.env.NEXT_PUBLIC_API_URL}/partners/${partnerId}/submit`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const updated = response.data?.partner ?? response.data;
+      if (updated) {
+        setPartner(updated);
+      }
+      setActionSuccess("Fluxo enviado para validação.");
+    } catch (err: any) {
+      if (err?.response?.status === 401) {
+        localStorage.removeItem("mdmToken");
+        storeUser(null);
+        router.replace("/login");
+        return;
+      }
+      const message = err?.response?.data?.message;
+      setActionError(typeof message === "string" ? message : "Não foi possível enviar para validação.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleApproveStage = async () => {
+    if (!partnerId || !process.env.NEXT_PUBLIC_API_URL || !partner) return;
+    const segment = stageEndpoints[currentStage];
+    if (!segment) return;
+    setActionLoading(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      const token = localStorage.getItem("mdmToken");
+      if (!token) {
+        router.replace("/login");
+        return;
+      }
+      const response = await axios.post(
+        `${process.env.NEXT_PUBLIC_API_URL}/partners/${partnerId}/${segment}/approve`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const updated = response.data?.partner ?? response.data;
+      if (updated) {
+        setPartner(updated);
+      }
+      setActionSuccess("Etapa aprovada.");
+    } catch (err: any) {
+      if (err?.response?.status === 401) {
+        localStorage.removeItem("mdmToken");
+        storeUser(null);
+        router.replace("/login");
+        return;
+      }
+      const message = err?.response?.data?.message;
+      setActionError(typeof message === "string" ? message : "Não foi possível aprovar a etapa.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRejectStage = async () => {
+    if (!partnerId || !process.env.NEXT_PUBLIC_API_URL || !partner) return;
+    const segment = stageEndpoints[currentStage];
+    if (!segment) return;
+    const reason = window.prompt("Informe o motivo da rejeição (opcional)")?.trim();
+    if (reason === undefined) {
+      return;
+    }
+    setActionLoading(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      const token = localStorage.getItem("mdmToken");
+      if (!token) {
+        router.replace("/login");
+        return;
+      }
+      const response = await axios.post(
+        `${process.env.NEXT_PUBLIC_API_URL}/partners/${partnerId}/${segment}/reject`,
+        reason ? { motivo: reason } : {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const updated = response.data?.partner ?? response.data;
+      if (updated) {
+        setPartner(updated);
+      }
+      setActionSuccess("Etapa rejeitada.");
+    } catch (err: any) {
+      if (err?.response?.status === 401) {
+        localStorage.removeItem("mdmToken");
+        storeUser(null);
+        router.replace("/login");
+        return;
+      }
+      const message = err?.response?.data?.message;
+      setActionError(typeof message === "string" ? message : "Não foi possível rejeitar a etapa.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   if (!partnerId) {
     return (
@@ -205,17 +455,116 @@ export default function PartnerDetailsPage() {
       </div>
 
       {tab === "dados" && (
-        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Resumo cadastral</h2>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            {selectedPartnerSummary.map((item) => (
-              <div key={item.label} className="flex flex-col">
-                <span className="text-xs font-medium uppercase text-zinc-500">{item.label}</span>
-                <span className="text-sm text-zinc-800">{item.value}</span>
+        <>
+          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Fluxo de aprovação</h2>
+            <div className="mt-4 flex flex-col gap-4">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap gap-3">
+                  {stageStatuses.map(({ stage, state }) => (
+                    <div
+                      key={stage}
+                      className={`min-w-[180px] rounded-xl border px-4 py-3 text-sm ${stageStateStyles[state]}`}
+                    >
+                      <div className="font-semibold">{stageLabels[stage]}</div>
+                      <div className="text-xs">{stageResponsibles[stage]}</div>
+                      <div className="text-xs font-medium uppercase tracking-wide">{stageStateLabels[state]}</div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-sm text-zinc-600">{pendingDescription}</p>
+                {canApprove && (
+                  <p className="text-xs font-medium text-indigo-600">
+                    Você pode aprovar a etapa {stageLabels[currentStage]} neste momento.
+                  </p>
+                )}
               </div>
-            ))}
-          </div>
-        </section>
+              {actionError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>
+              )}
+              {actionSuccess && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                  {actionSuccess}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {canSubmit && (
+                  <button
+                    type="button"
+                    onClick={handleSubmitPartner}
+                    disabled={actionLoading}
+                    className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-60"
+                  >
+                    {actionLoading ? "Processando..." : "Enviar para validação"}
+                  </button>
+                )}
+                {canApprove && (
+                  <button
+                    type="button"
+                    onClick={handleApproveStage}
+                    disabled={actionLoading}
+                    className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition-opacity disabled:opacity-60"
+                  >
+                    {actionLoading ? "Processando..." : "Aprovar etapa"}
+                  </button>
+                )}
+                {canReject && (
+                  <button
+                    type="button"
+                    onClick={handleRejectStage}
+                    disabled={actionLoading}
+                    className="rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition-opacity disabled:opacity-60"
+                  >
+                    {actionLoading ? "Processando..." : "Rejeitar etapa"}
+                  </button>
+                )}
+              </div>
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Histórico de etapas</h3>
+                {sortedHistory.length === 0 ? (
+                  <p className="mt-2 text-sm text-zinc-500">Nenhum evento registrado até o momento.</p>
+                ) : (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                      <thead className="bg-zinc-50">
+                        <tr className="text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                          <th className="px-4 py-2">Etapa</th>
+                          <th className="px-4 py-2">Ação</th>
+                          <th className="px-4 py-2">Responsável</th>
+                          <th className="px-4 py-2">Data</th>
+                          <th className="px-4 py-2">Observação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100">
+                        {sortedHistory.map((entry, index) => (
+                          <tr key={`${entry.stage}-${entry.performedAt}-${index}`} className="bg-white">
+                            <td className="px-4 py-2 text-sm text-zinc-700">{stageLabels[entry.stage]}</td>
+                            <td className="px-4 py-2 text-sm text-zinc-700">{actionLabels[entry.action]}</td>
+                            <td className="px-4 py-2 text-sm text-zinc-700">{entry.performedByName || entry.performedBy || "-"}</td>
+                            <td className="px-4 py-2 text-xs text-zinc-500">{formatDateTime(entry.performedAt)}</td>
+                            <td className="px-4 py-2 text-sm text-zinc-700">{entry.notes || "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Resumo cadastral</h2>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {selectedPartnerSummary.map((item) => (
+                <div key={item.label} className="flex flex-col">
+                  <span className="text-xs font-medium uppercase text-zinc-500">{item.label}</span>
+                  <span className="text-sm text-zinc-800">{item.value}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        </>
       )}
 
       {tab === "solicitacoes" && (
