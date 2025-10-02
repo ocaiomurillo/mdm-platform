@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { AuthGuard } from "@nestjs/passport";
+import { Request } from "express";
 import { CreatePartnerDto } from "./dto/create-partner.dto";
 import { ChangeRequestListQueryDto, CreateBulkChangeRequestDto, CreateChangeRequestDto } from "./dto/change-request.dto";
-import { PartnersService } from "./partners.service";
+import { AuthenticatedUser, PartnersService } from "./partners.service";
 
 class AuditRequestDto {
   partnerIds!: string[];
@@ -13,6 +14,12 @@ class AuditRequestDto {
 class AuditSingleDto {
   requestedBy?: string;
 }
+
+class StageDecisionDto {
+  motivo?: string;
+}
+
+type AuthenticatedRequest = Request & { user: AuthenticatedUser };
 
 @ApiTags("partners")
 @ApiBearerAuth()
@@ -90,18 +97,38 @@ export class PartnersController {
   }
 
   @Post(":id/submit")
-  submit(@Param("id") id: string) {
-    return this.svc.submit(id);
+  submit(@Param("id") id: string, @Req() req: AuthenticatedRequest) {
+    return this.svc.submit(id, req.user);
   }
 
-  @Post(":id/approve")
-  approve(@Param("id") id: string) {
-    return this.svc.approve(id);
+  @Post(":id/fiscal/approve")
+  approveFiscal(@Param("id") id: string, @Req() req: AuthenticatedRequest) {
+    return this.svc.approveStage(id, "fiscal", req.user);
   }
 
-  @Post(":id/reject")
-  reject(@Param("id") id: string) {
-    return this.svc.reject(id);
+  @Post(":id/fiscal/reject")
+  rejectFiscal(@Param("id") id: string, @Req() req: AuthenticatedRequest, @Body() body: StageDecisionDto) {
+    return this.svc.rejectStage(id, "fiscal", req.user, body?.motivo);
+  }
+
+  @Post(":id/compras/approve")
+  approveCompras(@Param("id") id: string, @Req() req: AuthenticatedRequest) {
+    return this.svc.approveStage(id, "compras", req.user);
+  }
+
+  @Post(":id/compras/reject")
+  rejectCompras(@Param("id") id: string, @Req() req: AuthenticatedRequest, @Body() body: StageDecisionDto) {
+    return this.svc.rejectStage(id, "compras", req.user, body?.motivo);
+  }
+
+  @Post(":id/dados-mestres/approve")
+  approveDadosMestres(@Param("id") id: string, @Req() req: AuthenticatedRequest) {
+    return this.svc.approveStage(id, "dados_mestres", req.user);
+  }
+
+  @Post(":id/dados-mestres/reject")
+  rejectDadosMestres(@Param("id") id: string, @Req() req: AuthenticatedRequest, @Body() body: StageDecisionDto) {
+    return this.svc.rejectStage(id, "dados_mestres", req.user, body?.motivo);
   }
 }
 

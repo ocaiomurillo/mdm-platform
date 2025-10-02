@@ -1,4 +1,17 @@
-﻿import { z } from "zod";
+import { z } from "zod";
+
+export const PartnerApprovalStageSchema = z.enum(["fiscal", "compras", "dados_mestres", "finalizado"]);
+
+export const PartnerApprovalActionSchema = z.enum(["submitted", "approved", "rejected"]);
+
+export const PartnerApprovalHistoryEntrySchema = z.object({
+  stage: PartnerApprovalStageSchema,
+  action: PartnerApprovalActionSchema,
+  performedBy: z.string().uuid().optional(),
+  performedByName: z.string().optional(),
+  notes: z.string().optional(),
+  performedAt: z.string()
+});
 
 export const AddressSchema = z.object({
   tipo: z.enum(["fiscal", "cobranca", "entrega"]).
@@ -72,7 +85,12 @@ export const PartnerSchema = z.object({
     montante: z.number().optional(),
     validade: z.string().optional()
   }).default({}),
-  sap_segments: z.array(z.any()).default([])
+  sap_segments: z.array(z.any()).default([]),
+  approvalStage: PartnerApprovalStageSchema.default("fiscal"),
+  approvalHistory: z.array(PartnerApprovalHistoryEntrySchema).default([])
 });
 
 export type Partner = z.infer<typeof PartnerSchema>;
+export type PartnerApprovalStage = z.infer<typeof PartnerApprovalStageSchema>;
+export type PartnerApprovalHistoryEntry = z.infer<typeof PartnerApprovalHistoryEntrySchema>;
+export type PartnerApprovalAction = z.infer<typeof PartnerApprovalActionSchema>;

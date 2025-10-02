@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
 import { Turnstile } from "@marsidev/react-turnstile";
 import { useRouter } from "next/navigation";
+import { storeUser } from "../../../lib/auth";
 
 const schema = z.object({
   email: z.string().email("Informe um e-mail válido"),
@@ -44,11 +45,15 @@ export default function LoginPage() {
         turnstileToken
       });
       localStorage.setItem("mdmToken", response.data.accessToken);
+      if (response.data?.user) {
+        storeUser(response.data.user);
+      }
       router.push("/dashboard");
     } catch (err: any) {
       const message = err?.response?.data?.message;
       setError(typeof message === "string" ? message : "Não foi possível autenticar.");
       setTurnstileToken(null);
+      storeUser(null);
     } finally {
       setIsSubmitting(false);
     }

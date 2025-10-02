@@ -26,9 +26,24 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
-    const payload = { sub: user.id, email: user.email };
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      name: user.displayName ?? user.email,
+      profile: user.profile ?? null,
+      responsibilities: Array.isArray(user.responsibilities) ? user.responsibilities : []
+    };
     const accessToken = await this.jwtService.signAsync(payload);
-    return { accessToken, user: { id: user.id, email: user.email } };
+    return {
+      accessToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.displayName ?? user.email,
+        profile: user.profile ?? null,
+        responsibilities: Array.isArray(user.responsibilities) ? user.responsibilities : []
+      }
+    };
   }
 
   private async ensureTurnstileValidated(token: string) {

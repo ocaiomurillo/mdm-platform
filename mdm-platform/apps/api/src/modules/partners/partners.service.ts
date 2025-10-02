@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { randomUUID } from "crypto";
 import { Brackets, In, Repository } from "typeorm";
@@ -13,8 +19,32 @@ import { Partner } from "./entities/partner.entity";
 import { PartnerAuditJob } from "./entities/partner-audit-job.entity";
 import { PartnerAuditLog } from "./entities/partner-audit-log.entity";
 import { PartnerChangeRequest } from "./entities/partner-change-request.entity";
-import { changeRequestFieldDefinitions, ChangeRequestOrigin, ChangeRequestPayload } from "@mdm/types";
+import {
+  changeRequestFieldDefinitions,
+  ChangeRequestOrigin,
+  ChangeRequestPayload,
+  PartnerApprovalAction,
+  PartnerApprovalHistoryEntry,
+  PartnerApprovalStage
+} from "@mdm/types";
 import { onlyDigits, validateCNPJ, validateCPF } from "@mdm/utils";
+
+export type AuthenticatedUser = {
+  id: string;
+  email: string;
+  name?: string | null;
+  profile?: string | null;
+  responsibilities?: string[];
+};
+
+const WORKFLOW_STAGES: PartnerApprovalStage[] = ["fiscal", "compras", "dados_mestres"];
+const FINAL_STAGE: PartnerApprovalStage = "finalizado";
+const STAGE_PERMISSION: Record<PartnerApprovalStage, string | null> = {
+  fiscal: "partners.approval.fiscal",
+  compras: "partners.approval.compras",
+  dados_mestres: "partners.approval.dados_mestres",
+  finalizado: null
+};
 
 @Injectable()
 export class PartnersService {
@@ -27,6 +57,57 @@ export class PartnersService {
     @InjectRepository(PartnerAuditLog) private readonly auditLogRepo: Repository<PartnerAuditLog>
   ) {}
 
+  private getNextStage(current: PartnerApprovalStage): PartnerApprovalStage | null {
+    const index = WORKFLOW_STAGES.indexOf(current);
+    if (index === -1) {
+      return null;
+    }
+    return WORKFLOW_STAGES[index + 1] ?? FINAL_STAGE;
+  }
+
+  private ensureUserCanHandleStage(stage: PartnerApprovalStage, user: AuthenticatedUser) {
+    const requiredPermission = STAGE_PERMISSION[stage];
+    if (!requiredPermission) {
+      return;
+    }
+    const permissions = user?.responsibilities ?? [];
+    if (!permissions.includes(requiredPermission)) {
+      throw new ForbiddenException("Usuário não possui permissão para esta etapa.");
+    }
+  }
+
+  private ensurePartnerStage(partner: Partner, stage: PartnerApprovalStage) {
+    if (stage === FINAL_STAGE) {
+      throw new BadRequestException("Etapa final não aceita ações diretas.");
+    }
+    if (partner.approvalStage !== stage) {
+      throw new BadRequestException("Parceiro não está na etapa informada.");
+    }
+    if (partner.status !== "em_validacao") {
+      throw new BadRequestException("Parceiro não está em validação.");
+    }
+  }
+
+  private appendHistory(
+    partner: Partner,
+    stage: PartnerApprovalStage,
+    action: PartnerApprovalAction,
+    user: AuthenticatedUser,
+    notes?: string
+  ) {
+    const history = Array.isArray(partner.approvalHistory) ? [...partner.approvalHistory] : [];
+    const sanitized: PartnerApprovalHistoryEntry = {
+      stage,
+      action,
+      performedBy: user?.id,
+      performedByName: user?.name?.trim() || user?.email,
+      notes,
+      performedAt: new Date().toISOString()
+    };
+    history.push(sanitized);
+    partner.approvalHistory = history;
+  }
+
   async create(dto: CreatePartnerDto) {
     const documento = onlyDigits(dto.documento);
     const duplicate = await this.repo.findOne({ where: { documento } });
@@ -38,6 +119,8 @@ export class PartnersService {
       ...dto,
       sapBusinessPartnerId: (dto as any).sap_bp_id,
       status: "draft",
+      approvalStage: "fiscal",
+      approvalHistory: [],
       documento,
       comunicacao: dto.comunicacao ?? {},
       fornecedor_info: dto.fornecedor_info ?? {},
@@ -270,21 +353,42 @@ export class PartnersService {
     };
   }
 
-  async submit(id: string) {
+  async submit(id: string, user: AuthenticatedUser) {
     const partner = await this.findOne(id);
+    if (!["draft", "rejeitado"].includes(partner.status)) {
+      throw new BadRequestException("Somente rascunhos ou rejeitados podem ser enviados para validação.");
+    }
     partner.status = "em_validacao";
+    partner.approvalStage = "fiscal";
+    this.appendHistory(partner, "fiscal", "submitted", user);
     return this.repo.save(partner);
   }
 
-  async approve(id: string) {
+  async approveStage(id: string, stage: PartnerApprovalStage, user: AuthenticatedUser) {
     const partner = await this.findOne(id);
-    partner.status = "aprovado";
+    this.ensurePartnerStage(partner, stage);
+    this.ensureUserCanHandleStage(stage, user);
+    this.appendHistory(partner, stage, "approved", user);
+
+    const nextStage = this.getNextStage(stage);
+    if (!nextStage || nextStage === FINAL_STAGE) {
+      partner.approvalStage = FINAL_STAGE;
+      partner.status = "aprovado";
+    } else {
+      partner.approvalStage = nextStage;
+      partner.status = "em_validacao";
+    }
+
     return this.repo.save(partner);
   }
 
-  async reject(id: string) {
+  async rejectStage(id: string, stage: PartnerApprovalStage, user: AuthenticatedUser, reason?: string) {
     const partner = await this.findOne(id);
+    this.ensurePartnerStage(partner, stage);
+    this.ensureUserCanHandleStage(stage, user);
     partner.status = "rejeitado";
+    partner.approvalStage = stage;
+    this.appendHistory(partner, stage, "rejected", user, reason);
     return this.repo.save(partner);
   }
 

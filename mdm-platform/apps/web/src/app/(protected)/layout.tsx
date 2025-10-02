@@ -4,8 +4,16 @@ import { usePathname, useRouter } from "next/navigation";
 import { Home, Users, PlusSquare, LogOut } from "lucide-react";
 import { PropsWithChildren, useEffect, useMemo, useState } from "react";
 import { jwtDecode } from "jwt-decode";
+import { getStoredUser, storeUser, StoredUser } from "../../lib/auth";
 
-type TokenPayload = { email?: string; sub?: string; name?: string; exp?: number };
+type TokenPayload = {
+  email?: string;
+  sub?: string;
+  name?: string;
+  exp?: number;
+  profile?: string | null;
+  responsibilities?: string[];
+};
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
@@ -18,10 +26,12 @@ export default function ProtectedLayout({ children }: PropsWithChildren) {
   const router = useRouter();
   const [displayName, setDisplayName] = useState<string>("");
   const [ready, setReady] = useState(false);
+  const [user, setUser] = useState<StoredUser | null>(null);
 
   useEffect(() => {
     const token = globalThis.localStorage?.getItem("mdmToken");
     if (!token) {
+      storeUser(null);
       router.replace("/login");
       return;
     }
@@ -30,14 +40,29 @@ export default function ProtectedLayout({ children }: PropsWithChildren) {
       const payload = jwtDecode<TokenPayload>(token);
       if (payload?.exp && payload.exp * 1000 < Date.now()) {
         localStorage.removeItem("mdmToken");
+        storeUser(null);
         router.replace("/login");
         return;
       }
 
-      const raw = payload?.name || payload?.email || "Usuário";
+      let stored = getStoredUser();
+      if (!stored) {
+        stored = {
+          id: payload?.sub || "",
+          email: payload?.email || "",
+          name: payload?.name || payload?.email || "Usuário",
+          profile: payload?.profile ?? null,
+          responsibilities: payload?.responsibilities ?? []
+        };
+        storeUser(stored);
+      }
+
+      setUser(stored);
+      const raw = stored?.name || stored?.email || payload?.name || payload?.email || "Usuário";
       setDisplayName(raw.split("@")[0]);
     } catch (err) {
       localStorage.removeItem("mdmToken");
+      storeUser(null);
       router.replace("/login");
       return;
     }
@@ -52,6 +77,7 @@ export default function ProtectedLayout({ children }: PropsWithChildren) {
 
   const handleSignOut = () => {
     localStorage.removeItem("mdmToken");
+    storeUser(null);
     router.push("/login");
   };
 
@@ -69,6 +95,9 @@ export default function ProtectedLayout({ children }: PropsWithChildren) {
           <div className="hidden flex-col px-4 py-3 md:flex">
             <span className="text-xs uppercase tracking-wide text-zinc-400">Usuário</span>
             <span className="truncate text-sm font-medium text-zinc-700">{displayName}</span>
+            {user?.profile && (
+              <span className="text-xs capitalize text-zinc-400">{user.profile.replace(/_/g, " ")}</span>
+            )}
           </div>
           <nav className="flex flex-1 flex-col gap-2 px-2 py-4">
             {navItems.map(({ href, icon: Icon, label }) => {

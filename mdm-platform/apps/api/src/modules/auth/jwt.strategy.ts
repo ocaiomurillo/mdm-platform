@@ -9,6 +9,9 @@ import { User } from './entities/user.entity';
 type JwtPayload = {
   sub: string;
   email?: string;
+  name?: string;
+  profile?: string | null;
+  responsibilities?: string[];
 };
 
 @Injectable()
@@ -34,6 +37,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException();
     }
 
-    return { id: user.id, email: user.email };
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.displayName ?? user.email,
+      profile: user.profile ?? null,
+      responsibilities: Array.isArray(user.responsibilities) ? user.responsibilities : []
+    };
   }
 }
