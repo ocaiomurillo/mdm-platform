@@ -13,6 +13,7 @@ import {
   ValidatorConstraint,
   ValidatorConstraintInterface
 } from "class-validator";
+import { SapIntegrationSegmentState } from "@mdm/types";
 import { onlyDigits, validateCNPJ, validateCPF } from "@mdm/utils";
 import { IsCep, IsIbgeCode, IsStateRegistration } from "../../../common/validators";
 
@@ -239,7 +240,7 @@ export class CreatePartnerDto {
 
   @ApiProperty({ type: Array, required: false })
   @IsOptional()
-  sap_segments?: any[];
+  sap_segments?: SapIntegrationSegmentState[];
 
   @ApiProperty({ required: false })
   @IsOptional()

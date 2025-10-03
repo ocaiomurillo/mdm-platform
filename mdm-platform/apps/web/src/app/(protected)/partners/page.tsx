@@ -4,6 +4,7 @@ import axios from "axios";
 import { useRouter } from "next/navigation";
 import { PartnerApprovalStage } from "@mdm/types";
 import { getStoredUser, StoredUser } from "../../../lib/auth";
+import { mapSapSegments, summarizeSapOverall } from "./sap-integration-helpers";
 
 const stageLabels: Record<PartnerApprovalStage, string> = {
   fiscal: "Fiscal",
@@ -19,9 +20,28 @@ const stagePermissions: Record<PartnerApprovalStage, string | null> = {
   finalizado: null
 };
 
+const sapStatusToneClasses = {
+  success: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  error: "border-red-200 bg-red-50 text-red-700",
+  processing: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  pending: "border-zinc-200 bg-zinc-50 text-zinc-600"
+} as const;
+
+function renderSapStatus(partner: any) {
+  const segments = mapSapSegments(partner.sap_segments ?? partner.sapSegments ?? []);
+  const summary = summarizeSapOverall(segments);
+  const toneClass = sapStatusToneClasses[summary.tone];
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${toneClass}`}>
+      {summary.label}
+    </span>
+  );
+}
+
 const ALL_COLUMNS = [
   { id: "mdm_partner_id", label: "ID MDM", accessor: (p: any) => p.mdmPartnerId ?? p.mdm_partner_id ?? "-" },
   { id: "sap_bp_id", label: "SAP BP", accessor: (p: any) => p.sapBusinessPartnerId ?? p.sap_bp_id ?? "-" },
+  { id: "sap_status", label: "Integração SAP", accessor: renderSapStatus },
   { id: "nome_legal", label: "Nome", accessor: (p: any) => p.nome_legal },
   { id: "documento", label: "Documento", accessor: (p: any) => p.documento },
   { id: "natureza", label: "Natureza", accessor: (p: any) => p.natureza },
@@ -71,9 +91,17 @@ export default function PartnersList() {
   const [sapFilter, setSapFilter] = useState<string>("all");
 
   const [showColumnPicker, setShowColumnPicker] = useState(false);
-  const [selectedColumns, setSelectedColumns] = useState<string[]>(
-    () => loadStoredColumns() || ["mdm_partner_id", "sap_bp_id", "nome_legal", "documento", "status", "approval_stage"]
-  );
+  const [selectedColumns, setSelectedColumns] = useState<string[]>(() => {
+    const stored = loadStoredColumns();
+    const defaults = ["mdm_partner_id", "sap_bp_id", "sap_status", "nome_legal", "documento", "status", "approval_stage"];
+    if (!stored) {
+      return defaults;
+    }
+    if (!stored.includes("sap_status")) {
+      return [...stored, "sap_status"];
+    }
+    return stored;
+  });
 
   useEffect(() => {
     const handler = setTimeout(() => {

@@ -1,5 +1,5 @@
 import { Column, CreateDateColumn, Entity, Generated, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
-import { PartnerApprovalHistoryEntry, PartnerApprovalStage } from "@mdm/types";
+import { PartnerApprovalHistoryEntry, PartnerApprovalStage, SapIntegrationSegmentState } from "@mdm/types";
 import { PartnerAuditLog } from "./partner-audit-log.entity";
 import { PartnerChangeRequest } from "./partner-change-request.entity";
 
@@ -92,7 +92,7 @@ export class Partner {
   };
 
   @Column("jsonb", { default: [] })
-  sap_segments!: any[];
+  sap_segments!: SapIntegrationSegmentState[];
 
   @Column({ name: "approval_stage", default: "fiscal" })
   approvalStage!: PartnerApprovalStage;

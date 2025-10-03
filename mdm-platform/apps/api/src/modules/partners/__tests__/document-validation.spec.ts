@@ -84,13 +84,25 @@ describe("PartnersService lookup", () => {
   const changeRepo = { find: vi.fn(), save: vi.fn() };
   const auditJobRepo = { findOne: vi.fn(), update: vi.fn() };
   const auditLogRepo = { save: vi.fn() };
+  const sapIntegration = {
+    integratePartner: vi.fn().mockResolvedValue({ segments: [], completed: true, updates: {} }),
+    retry: vi.fn().mockResolvedValue({ segments: [], completed: true, updates: {} })
+  };
 
   let service: PartnersService;
 
   beforeEach(() => {
     vi.restoreAllMocks();
     repo.findOne.mockReset();
-    service = new PartnersService(repo as any, changeRepo as any, auditJobRepo as any, auditLogRepo as any);
+    sapIntegration.integratePartner.mockReset();
+    sapIntegration.retry.mockReset();
+    service = new PartnersService(
+      repo as any,
+      changeRepo as any,
+      auditJobRepo as any,
+      auditLogRepo as any,
+      sapIntegration as any
+    );
   });
 
   it("rejects invalid CPF", async () => {
