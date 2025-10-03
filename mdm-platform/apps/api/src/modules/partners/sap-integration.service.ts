@@ -17,15 +17,17 @@ export type SapIntegrationOptions = {
   onStateChange?: (segments: SapIntegrationSegmentState[]) => Promise<void> | void;
 };
 
-const DEFAULT_SEGMENTS: SapIntegrationSegment[] = [
+export const SAP_INTEGRATION_SEGMENTS: SapIntegrationSegment[] = [
   "businessPartner",
   "addresses",
   "roles",
   "banks"
 ];
 
+const DEFAULT_SEGMENTS: SapIntegrationSegment[] = [...SAP_INTEGRATION_SEGMENTS];
+
 type SegmentConfig = {
-  method: "POST" | "PUT";
+  method: "POST" | "PATCH";
   path: string;
   buildPayload: (partner: Partner) => any;
   successMessage: string;
@@ -238,7 +240,7 @@ export class SapIntegrationService {
       })
     },
     addresses: {
-      method: "PUT",
+      method: "PATCH",
       path: "/business-partners/addresses",
       successMessage: "Endereços sincronizados",
       buildPayload: (partner) => ({
@@ -250,7 +252,7 @@ export class SapIntegrationService {
       })
     },
     roles: {
-      method: "PUT",
+      method: "PATCH",
       path: "/business-partners/roles",
       successMessage: "Funções sincronizadas",
       buildPayload: (partner) => ({
@@ -262,7 +264,7 @@ export class SapIntegrationService {
       })
     },
     banks: {
-      method: "PUT",
+      method: "PATCH",
       path: "/business-partners/banks",
       successMessage: "Bancos sincronizados",
       buildPayload: (partner) => ({
@@ -340,7 +342,7 @@ export class SapIntegrationService {
     return value.length ? value : null;
   }
 
-  private async callSap(method: "POST" | "PUT", path: string, body: any) {
+  private async callSap(method: "POST" | "PATCH", path: string, body: any) {
     const url = `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     const auth = this.authorizationHeader;
@@ -370,10 +372,7 @@ export class SapIntegrationService {
       }
 
       if (!response.ok) {
-        const message =
-          typeof parsed === "string"
-            ? parsed
-            : parsed?.message ?? `SAP respondeu com status ${response.status}`;
+        const message = this.resolveErrorMessage(response.status, parsed);
         throw new Error(message);
       }
 
@@ -389,5 +388,68 @@ export class SapIntegrationService {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  private resolveErrorMessage(status: number, payload: any): string {
+    if (typeof payload === "string" && payload.trim().length) {
+      return payload.trim();
+    }
+
+    if (payload && typeof payload === "object") {
+      const candidates = [
+        payload.error,
+        payload.message,
+        payload.errorMessage,
+        payload.Message
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate && typeof candidate === "string" && candidate.trim().length) {
+          return candidate.trim();
+        }
+      }
+
+      if (Array.isArray(payload.Messages) && payload.Messages.length) {
+        const message = payload.Messages.find((item: any) => typeof item?.message === "string")?.message;
+        if (message && message.trim().length) {
+          return message.trim();
+        }
+      }
+
+      if (Array.isArray(payload.errors) && payload.errors.length) {
+        const message = payload.errors.find((item: any) => typeof item?.message === "string")?.message;
+        if (message && message.trim().length) {
+          return message.trim();
+        }
+      }
+    }
+
+    return `SAP respondeu com status ${status}`;
+  }
+
+  public markSegmentsAsError(
+    partner: Partner,
+    message: string,
+    segments?: SapIntegrationSegment[]
+  ): SapIntegrationSegmentState[] {
+    const states = this.prepareInitialState(partner.sap_segments);
+    const targets = this.normalizeSegments(segments, true);
+    const now = new Date().toISOString();
+
+    return states.map((state) => {
+      if (!targets.includes(state.segment)) {
+        return state;
+      }
+      if (state.status === "success") {
+        return state;
+      }
+      return {
+        ...state,
+        status: "error",
+        lastAttemptAt: now,
+        errorMessage: message,
+        message: undefined
+      };
+    });
   }
 }

@@ -1,10 +1,11 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
-import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { AuthGuard } from "@nestjs/passport";
 import { Request } from "express";
 import { CreatePartnerDto } from "./dto/create-partner.dto";
 import { ChangeRequestListQueryDto, CreateBulkChangeRequestDto, CreateChangeRequestDto } from "./dto/change-request.dto";
 import { AuthenticatedUser, PartnersService } from "./partners.service";
+import { SAP_INTEGRATION_SEGMENTS } from "./sap-integration.service";
 
 class AuditRequestDto {
   partnerIds!: string[];
@@ -97,6 +98,7 @@ export class PartnersController {
   }
 
   @Post(":id/submit")
+  @ApiOperation({ summary: "Submete o parceiro para validação e inicia o envio dos dados principais ao SAP." })
   submit(@Param("id") id: string, @Req() req: AuthenticatedRequest) {
     return this.svc.submit(id, req.user);
   }
@@ -132,8 +134,28 @@ export class PartnersController {
   }
 
   @Post(":id/integrations/sap/retry")
+  @ApiOperation({
+    summary: "Reprocessa todos os segmentos SAP pendentes ou com falha.",
+    description: "Requer as variáveis SAP_BASE_URL, SAP_USER e SAP_PASSWORD configuradas."
+  })
+  @ApiResponse({ status: 200, description: "Estado atualizado da integração." })
   retrySapIntegration(@Param("id") id: string) {
     return this.svc.retrySapIntegration(id);
+  }
+
+  @Post(":id/integrations/sap/:segment")
+  @ApiOperation({
+    summary: "Dispara o envio de um segmento específico para o SAP.",
+    description: "Requer SAP_BASE_URL, SAP_USER e SAP_PASSWORD definidos e o parceiro na etapa finalizada."
+  })
+  @ApiParam({
+    name: "segment",
+    enum: SAP_INTEGRATION_SEGMENTS,
+    description: "Segmento da integração SAP (businessPartner, addresses, roles, banks)."
+  })
+  @ApiResponse({ status: 200, description: "Estado atualizado da integração." })
+  triggerSapSegment(@Param("id") id: string, @Param("segment") segment: string) {
+    return this.svc.triggerSapIntegrationSegment(id, segment);
   }
 }
 

@@ -86,7 +86,8 @@ describe("PartnersService lookup", () => {
   const auditLogRepo = { save: vi.fn() };
   const sapIntegration = {
     integratePartner: vi.fn().mockResolvedValue({ segments: [], completed: true, updates: {} }),
-    retry: vi.fn().mockResolvedValue({ segments: [], completed: true, updates: {} })
+    retry: vi.fn().mockResolvedValue({ segments: [], completed: true, updates: {} }),
+    markSegmentsAsError: vi.fn().mockReturnValue([])
   };
 
   let service: PartnersService;
@@ -96,6 +97,7 @@ describe("PartnersService lookup", () => {
     repo.findOne.mockReset();
     sapIntegration.integratePartner.mockReset();
     sapIntegration.retry.mockReset();
+    sapIntegration.markSegmentsAsError.mockClear();
     service = new PartnersService(
       repo as any,
       changeRepo as any,

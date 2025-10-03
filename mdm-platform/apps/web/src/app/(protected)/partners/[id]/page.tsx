@@ -1,5 +1,5 @@
 ﻿"use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import axios from "axios";
@@ -177,44 +177,46 @@ export default function PartnerDetailsPage() {
   const [sapActionLoading, setSapActionLoading] = useState(false);
   const [sapActionError, setSapActionError] = useState<string | null>(null);
   const [sapActionSuccess, setSapActionSuccess] = useState<string | null>(null);
+  const [segmentLoading, setSegmentLoading] = useState<Record<string, boolean>>({});
+
+  const loadPartner = useCallback(async () => {
+    if (!partnerId || !process.env.NEXT_PUBLIC_API_URL) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem("mdmToken");
+      if (!token) {
+        router.replace("/login");
+        return;
+      }
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/partners/${partnerId}/details`;
+      const response = await axios.get(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const details = response.data ?? {};
+      setPartner(details?.partner ?? null);
+      if (Array.isArray(details?.auditLogs)) {
+        setAuditLogs(details.auditLogs as PartnerAuditLog[]);
+      } else {
+        setAuditLogs([]);
+      }
+    } catch (error: any) {
+      if (error?.response?.status === 401) {
+        localStorage.removeItem("mdmToken");
+        router.replace("/login");
+        return;
+      }
+      const message = error?.response?.data?.message;
+      setError(typeof message === "string" ? message : "Não foi possível carregar o parceiro.");
+      setAuditLogs([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [partnerId, router]);
 
   useEffect(() => {
-    if (!partnerId) return;
-    const fetchPartner = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const token = localStorage.getItem("mdmToken");
-        if (!token) {
-          router.replace("/login");
-          return;
-        }
-        const url = `${process.env.NEXT_PUBLIC_API_URL}/partners/${partnerId}/details`;
-        const response = await axios.get(url, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const details = response.data ?? {};
-        setPartner(details?.partner ?? null);
-        if (Array.isArray(details?.auditLogs)) {
-          setAuditLogs(details.auditLogs as PartnerAuditLog[]);
-        } else {
-          setAuditLogs([]);
-        }
-      } catch (error: any) {
-        if (error?.response?.status === 401) {
-          localStorage.removeItem("mdmToken");
-          router.replace("/login");
-          return;
-        }
-        const message = error?.response?.data?.message;
-        setError(typeof message === "string" ? message : "Não foi possível carregar o parceiro.");
-        setAuditLogs([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchPartner();
-  }, [partnerId, router]);
+    loadPartner();
+  }, [loadPartner]);
 
   useEffect(() => {
     if (!partnerId) return;
@@ -263,6 +265,24 @@ export default function PartnerDetailsPage() {
     if ((partner.approvalStage || "") !== "finalizado") return false;
     return shouldAllowSapRetry(sapSegments);
   }, [partner, sapSegments]);
+
+  const allowSegmentActions = partner?.approvalStage === "finalizado";
+
+  const getSegmentActionLabel = (segment: SapIntegrationSegmentState) => {
+    if (segmentLoading[segment.segment]) {
+      return "Enviando...";
+    }
+    switch (segment.status) {
+      case "success":
+        return "Reenviar segmento";
+      case "error":
+        return "Reprocessar segmento";
+      case "processing":
+        return "Processando...";
+      default:
+        return "Enviar segmento";
+    }
+  };
 
   const selectedPartnerSummary = useMemo(() => {
     if (!partner) return [] as Array<{ label: string; value: string }>;
@@ -394,15 +414,12 @@ export default function PartnerDetailsPage() {
         router.replace("/login");
         return;
       }
-      const response = await axios.post(
+      await axios.post(
         `${process.env.NEXT_PUBLIC_API_URL}/partners/${partnerId}/integrations/sap/retry`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      const updated = response.data?.partner ?? response.data;
-      if (updated) {
-        setPartner(updated);
-      }
+      await loadPartner();
       setSapActionSuccess("Integração reenviada ao SAP.");
     } catch (err: any) {
       if (err?.response?.status === 401) {
@@ -415,6 +432,42 @@ export default function PartnerDetailsPage() {
       setSapActionError(typeof message === "string" ? message : "Não foi possível reenviar ao SAP.");
     } finally {
       setSapActionLoading(false);
+    }
+  };
+
+  const handleTriggerSapSegment = async (segmentKey: string) => {
+    if (!partnerId || !process.env.NEXT_PUBLIC_API_URL) return;
+    setSapActionError(null);
+    setSapActionSuccess(null);
+    setSegmentLoading((prev) => ({ ...prev, [segmentKey]: true }));
+    try {
+      const token = localStorage.getItem("mdmToken");
+      if (!token) {
+        router.replace("/login");
+        return;
+      }
+      await axios.post(
+        `${process.env.NEXT_PUBLIC_API_URL}/partners/${partnerId}/integrations/sap/${segmentKey}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      await loadPartner();
+      const label =
+        SAP_SEGMENT_LABELS[segmentKey as keyof typeof SAP_SEGMENT_LABELS] ?? segmentKey;
+      setSapActionSuccess(`Segmento ${label} enviado ao SAP.`);
+    } catch (err: any) {
+      if (err?.response?.status === 401) {
+        localStorage.removeItem("mdmToken");
+        storeUser(null);
+        router.replace("/login");
+        return;
+      }
+      const message = err?.response?.data?.message;
+      setSapActionError(
+        typeof message === "string" ? message : "Não foi possível enviar o segmento ao SAP."
+      );
+    } finally {
+      setSegmentLoading((prev) => ({ ...prev, [segmentKey]: false }));
     }
   };
 
@@ -742,6 +795,21 @@ export default function PartnerDetailsPage() {
                   ) : segment.message ? (
                     <p className="text-xs text-zinc-600">{segment.message}</p>
                   ) : null}
+                  {allowSegmentActions && (
+                    <button
+                      type="button"
+                      onClick={() => handleTriggerSapSegment(segment.segment)}
+                      disabled={
+                        sapActionLoading ||
+                        Boolean(segmentLoading[segment.segment]) ||
+                        segment.status === "processing" ||
+                        sapOverall.disabled
+                      }
+                      className="mt-1 self-start rounded-lg border border-indigo-200 bg-white px-3 py-1 text-xs font-semibold text-indigo-700 transition disabled:opacity-50"
+                    >
+                      {getSegmentActionLabel(segment)}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

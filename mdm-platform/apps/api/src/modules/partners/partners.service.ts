@@ -19,7 +19,7 @@ import { Partner } from "./entities/partner.entity";
 import { PartnerAuditJob } from "./entities/partner-audit-job.entity";
 import { PartnerAuditLog } from "./entities/partner-audit-log.entity";
 import { PartnerChangeRequest } from "./entities/partner-change-request.entity";
-import { SapIntegrationService } from "./sap-integration.service";
+import { SapIntegrationService, SAP_INTEGRATION_SEGMENTS } from "./sap-integration.service";
 import {
   changeRequestFieldDefinitions,
   ChangeRequestOrigin,
@@ -27,7 +27,9 @@ import {
   PartnerAuditDifference,
   PartnerApprovalAction,
   PartnerApprovalHistoryEntry,
-  PartnerApprovalStage
+  PartnerApprovalStage,
+  SapIntegrationSegment,
+  SapIntegrationSegmentState
 } from "@mdm/types";
 import { onlyDigits, validateCNPJ, validateCPF } from "@mdm/utils";
 
@@ -47,6 +49,9 @@ const STAGE_PERMISSION: Record<PartnerApprovalStage, string | null> = {
   dados_mestres: "partners.approval.dados_mestres",
   finalizado: null
 };
+
+const SAP_SEGMENTS: SapIntegrationSegment[] = [...SAP_INTEGRATION_SEGMENTS];
+const BUSINESS_PARTNER_SEGMENT: SapIntegrationSegment = "businessPartner";
 
 type AuditFieldMapping = {
   field: string;
@@ -209,6 +214,58 @@ export class PartnersService {
     };
     history.push(sanitized);
     partner.approvalHistory = history;
+  }
+
+  private parseSapSegment(segment: string): SapIntegrationSegment {
+    const normalized = (segment ?? "").toString().trim().toLowerCase();
+    const match = SAP_SEGMENTS.find((item) => item.toLowerCase() === normalized);
+    if (!match) {
+      throw new BadRequestException("Segmento SAP inválido.");
+    }
+    return match;
+  }
+
+  private isFullyIntegrated(states: SapIntegrationSegmentState[]): boolean {
+    if (!Array.isArray(states) || !states.length) {
+      return false;
+    }
+    return SAP_SEGMENTS.every((segment) => {
+      const current = states.find((state) => state.segment === segment);
+      return current?.status === "success";
+    });
+  }
+
+  private async runSapIntegration(
+    partner: Partner,
+    segments?: SapIntegrationSegment[],
+    options: { useRetry?: boolean; updateStatus?: boolean } = {}
+  ) {
+    const { useRetry = false, updateStatus = false } = options;
+
+    const handler = useRetry
+      ? this.sapIntegration.retry.bind(this.sapIntegration)
+      : this.sapIntegration.integratePartner.bind(this.sapIntegration);
+
+    const result = await handler(partner, {
+      segments,
+      onStateChange: async (states) => {
+        partner.sap_segments = states;
+        await this.repo.update(partner.id, { sap_segments: states });
+      }
+    });
+
+    partner.sap_segments = result.segments;
+    Object.entries(result.updates).forEach(([key, value]) => {
+      if (value !== undefined) {
+        (partner as any)[key] = value;
+      }
+    });
+
+    if (updateStatus) {
+      partner.status = this.isFullyIntegrated(partner.sap_segments) ? "integrado" : "aprovado";
+    }
+
+    return this.repo.save(partner);
   }
 
   async create(dto: CreatePartnerDto) {
@@ -464,7 +521,7 @@ export class PartnersService {
     partner.status = "em_validacao";
     partner.approvalStage = "fiscal";
     this.appendHistory(partner, "fiscal", "submitted", user);
-    return this.repo.save(partner);
+    return this.runSapIntegration(partner, [BUSINESS_PARTNER_SEGMENT]);
   }
 
   async approveStage(id: string, stage: PartnerApprovalStage, user: AuthenticatedUser) {
@@ -492,24 +549,7 @@ export class PartnersService {
     if (partner.approvalStage !== FINAL_STAGE) {
       throw new BadRequestException("Parceiro não está na etapa final para aprovação");
     }
-
-    const result = await this.sapIntegration.integratePartner(partner, {
-      onStateChange: async (segments) => {
-        partner.sap_segments = segments;
-        await this.repo.update(partner.id, { sap_segments: segments });
-      }
-    });
-
-    partner.sap_segments = result.segments;
-    Object.entries(result.updates).forEach(([key, value]) => {
-      if (value !== undefined) {
-        (partner as any)[key] = value;
-      }
-    });
-
-    partner.status = result.completed ? "integrado" : "aprovado";
-    await this.repo.save(partner);
-    return partner;
+    return this.runSapIntegration(partner, undefined, { useRetry: true, updateStatus: true });
   }
 
   async retrySapIntegration(id: string) {
@@ -517,24 +557,16 @@ export class PartnersService {
     if (partner.approvalStage !== FINAL_STAGE) {
       throw new BadRequestException("Somente parceiros finalizados podem ser reenviados ao SAP");
     }
+    return this.runSapIntegration(partner, undefined, { useRetry: true, updateStatus: true });
+  }
 
-    const result = await this.sapIntegration.retry(partner, {
-      onStateChange: async (segments) => {
-        partner.sap_segments = segments;
-        await this.repo.update(partner.id, { sap_segments: segments });
-      }
-    });
-
-    partner.sap_segments = result.segments;
-    Object.entries(result.updates).forEach(([key, value]) => {
-      if (value !== undefined) {
-        (partner as any)[key] = value;
-      }
-    });
-
-    partner.status = result.completed ? "integrado" : "aprovado";
-    await this.repo.save(partner);
-    return partner;
+  async triggerSapIntegrationSegment(id: string, segment: string) {
+    const partner = await this.findOne(id);
+    if (partner.approvalStage !== FINAL_STAGE) {
+      throw new BadRequestException("Somente parceiros finalizados podem ser reenviados ao SAP");
+    }
+    const normalized = this.parseSapSegment(segment);
+    return this.runSapIntegration(partner, [normalized], { useRetry: true, updateStatus: true });
   }
 
   async rejectStage(id: string, stage: PartnerApprovalStage, user: AuthenticatedUser, reason?: string) {
@@ -544,6 +576,10 @@ export class PartnersService {
     partner.status = "rejeitado";
     partner.approvalStage = stage;
     this.appendHistory(partner, stage, "rejected", user, reason);
+    const rejectionMessage = reason?.trim()
+      ? `Integração cancelada: parceiro rejeitado (${reason.trim()})`
+      : "Integração cancelada: parceiro rejeitado no fluxo de aprovação.";
+    partner.sap_segments = this.sapIntegration.markSegmentsAsError(partner, rejectionMessage);
     return this.repo.save(partner);
   }
 
