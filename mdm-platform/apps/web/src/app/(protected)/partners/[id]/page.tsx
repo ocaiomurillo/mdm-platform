@@ -154,6 +154,20 @@ const formatDateTime = (value?: string) => {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
 };
 
+const normalizePartnerDetails = (data: Partner | null): Partner | null => {
+  if (!data) return null;
+  const mdmPartnerId = data.mdmPartnerId ?? data.mdm_partner_id;
+  const sapBusinessPartnerId = data.sapBusinessPartnerId ?? data.sap_bp_id;
+
+  return {
+    ...data,
+    mdmPartnerId: mdmPartnerId ?? undefined,
+    mdm_partner_id: data.mdm_partner_id ?? mdmPartnerId,
+    sapBusinessPartnerId: sapBusinessPartnerId ?? undefined,
+    sap_bp_id: data.sap_bp_id ?? sapBusinessPartnerId
+  };
+};
+
 export default function PartnerDetailsPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -196,7 +210,7 @@ export default function PartnerDetailsPage() {
           headers: { Authorization: `Bearer ${token}` }
         });
         const details = response.data ?? {};
-        setPartner(details?.partner ?? null);
+        setPartner(normalizePartnerDetails(details?.partner ?? null));
         setRegistrationProgress(details?.registrationProgress ?? null);
         if (Array.isArray(details?.auditLogs)) {
           setAuditLogs(details.auditLogs as PartnerAuditLog[]);
@@ -297,9 +311,6 @@ export default function PartnerDetailsPage() {
   const selectedPartnerSummary = useMemo(() => {
     if (!partner) return [] as Array<{ label: string; value: string }>;
     return [
-      { label: "Nome legal", value: partner.nome_legal },
-      { label: "Nome fantasia", value: partner.nome_fantasia || "-" },
-      { label: "Documento", value: partner.documento },
       { label: "Natureza", value: partner.natureza },
       { label: "Status", value: partner.status },
       {
@@ -406,7 +417,7 @@ export default function PartnerDetailsPage() {
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      const updated = response.data?.partner ?? response.data;
+      const updated = normalizePartnerDetails(response.data?.partner ?? response.data ?? null);
       if (updated) {
         setPartner(updated);
       }
@@ -512,7 +523,7 @@ export default function PartnerDetailsPage() {
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      const updated = response.data?.partner ?? response.data;
+      const updated = normalizePartnerDetails(response.data?.partner ?? response.data ?? null);
       if (updated) {
         setPartner(updated);
       }
@@ -554,7 +565,7 @@ export default function PartnerDetailsPage() {
         reason ? { motivo: reason } : {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      const updated = response.data?.partner ?? response.data;
+      const updated = normalizePartnerDetails(response.data?.partner ?? response.data ?? null);
       if (updated) {
         setPartner(updated);
       }
@@ -604,6 +615,9 @@ export default function PartnerDetailsPage() {
 
   const solicitacoesAtivas = changeRequests;
 
+  const mdmId = partner?.mdmPartnerId ?? partner?.mdm_partner_id;
+  const sapBpId = partner?.sapBusinessPartnerId ?? partner?.sap_bp_id;
+
   return (
     <main className="min-h-screen bg-zinc-100 p-6">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
@@ -617,7 +631,19 @@ export default function PartnerDetailsPage() {
         </button>
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-zinc-900">{partner.nome_legal}</h1>
+            <h1 className="flex flex-wrap items-center gap-3 text-2xl font-semibold text-zinc-900">
+              <span>{partner.nome_legal}</span>
+              {mdmId ? (
+                <span className="rounded-full bg-indigo-50 px-3 py-1 text-sm font-semibold text-indigo-700">
+                  MDM #{mdmId}
+                </span>
+              ) : null}
+              {sapBpId ? (
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
+                  SAP BP {sapBpId}
+                </span>
+              ) : null}
+            </h1>
             <p className="text-sm text-zinc-500">Documento: {partner.documento}</p>
           </div>
           <Link
@@ -633,9 +659,6 @@ export default function PartnerDetailsPage() {
           <span className={`rounded-full border px-3 py-1 font-medium ${sapOverallToneStyles[sapOverall.tone]}`}>
             SAP: {sapOverall.label}
           </span>
-          {partner.sapBusinessPartnerId && (
-            <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">SAP BP {partner.sapBusinessPartnerId}</span>
-          )}
         </div>
       </div>
 

@@ -61,7 +61,9 @@ export const CommunicationEmailSchema = z.object({
 export const PartnerSchema = z.object({
   id: z.string().uuid().optional(),
   mdm_partner_id: z.number().optional(),
+  mdmPartnerId: z.number().optional(),
   sap_bp_id: z.string().optional(),
+  sapBusinessPartnerId: z.string().optional(),
   tipo_pessoa: z.enum(["PJ", "PF"]),
   natureza: z.enum(["cliente", "fornecedor", "ambos"]),
   status: z.enum(["draft", "em_validacao", "aprovado", "rejeitado", "integrado"]).default("draft"),
