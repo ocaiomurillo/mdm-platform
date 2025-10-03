@@ -34,7 +34,8 @@ describe("mapSapPartnerPayload", () => {
     expect(result.sapBusinessPartnerId).toBe("BP-001");
     expect(result.nome_legal).toBe("Empresa X");
     expect(result.nome_fantasia).toBe("X LTDA");
-    expect(result.documento).toBe("12.345.678/0001-99");
+    expect(result.documento).toBe("12345678000199");
+    expect(result.documento).toMatch(/^\d+$/);
     expect(result.tipo_pessoa).toBe("PJ");
     expect(result.natureza).toBe("cliente");
     expect(result.status).toBe("integrado");
