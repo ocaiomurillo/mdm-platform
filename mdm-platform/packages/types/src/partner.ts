@@ -4,6 +4,25 @@ export const PartnerApprovalStageSchema = z.enum(["fiscal", "compras", "dados_me
 
 export const PartnerApprovalActionSchema = z.enum(["submitted", "approved", "rejected"]);
 
+export const SapIntegrationSegmentSchema = z.enum([
+  "businessPartner",
+  "addresses",
+  "roles",
+  "banks"
+]);
+
+export const SapIntegrationStatusSchema = z.enum(["pending", "processing", "success", "error"]);
+
+export const SapIntegrationSegmentStateSchema = z.object({
+  segment: SapIntegrationSegmentSchema,
+  status: SapIntegrationStatusSchema,
+  lastAttemptAt: z.string().optional(),
+  lastSuccessAt: z.string().optional(),
+  message: z.string().optional(),
+  errorMessage: z.string().optional(),
+  sapId: z.string().optional()
+});
+
 export const PartnerApprovalHistoryEntrySchema = z.object({
   stage: PartnerApprovalStageSchema,
   action: PartnerApprovalActionSchema,
@@ -85,7 +104,7 @@ export const PartnerSchema = z.object({
     montante: z.number().optional(),
     validade: z.string().optional()
   }).default({}),
-  sap_segments: z.array(z.any()).default([]),
+  sap_segments: z.array(SapIntegrationSegmentStateSchema).default([]),
   approvalStage: PartnerApprovalStageSchema.default("fiscal"),
   approvalHistory: z.array(PartnerApprovalHistoryEntrySchema).default([])
 });
@@ -94,3 +113,6 @@ export type Partner = z.infer<typeof PartnerSchema>;
 export type PartnerApprovalStage = z.infer<typeof PartnerApprovalStageSchema>;
 export type PartnerApprovalHistoryEntry = z.infer<typeof PartnerApprovalHistoryEntrySchema>;
 export type PartnerApprovalAction = z.infer<typeof PartnerApprovalActionSchema>;
+export type SapIntegrationSegment = z.infer<typeof SapIntegrationSegmentSchema>;
+export type SapIntegrationStatus = z.infer<typeof SapIntegrationStatusSchema>;
+export type SapIntegrationSegmentState = z.infer<typeof SapIntegrationSegmentStateSchema>;

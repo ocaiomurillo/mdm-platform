@@ -16,4 +16,4 @@ Monorepo com **Next.js (web)** + **NestJS (api)** + **PostgreSQL** + **Docker co
 3. `pnpm --filter @mdm/api run migration:run`
 4. `pnpm dev` (roda web e api via turbo)
 
-- Configure o SAP com `SAP_BASE_URL`, `SAP_USER`, `SAP_PASSWORD` e opcionalmente `SAP_SYNC_ENABLED=false` para desativar o job de sincronização.
+- Configure o SAP com `SAP_BASE_URL`, `SAP_USER`, `SAP_PASSWORD`, `SAP_REQUEST_TIMEOUT` (opcional, em ms) e opcionalmente `SAP_SYNC_ENABLED=false` para desativar o envio automático.

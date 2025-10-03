@@ -130,5 +130,10 @@ export class PartnersController {
   rejectDadosMestres(@Param("id") id: string, @Req() req: AuthenticatedRequest, @Body() body: StageDecisionDto) {
     return this.svc.rejectStage(id, "dados_mestres", req.user, body?.motivo);
   }
+
+  @Post(":id/integrations/sap/retry")
+  retrySapIntegration(@Param("id") id: string) {
+    return this.svc.retrySapIntegration(id);
+  }
 }
 
