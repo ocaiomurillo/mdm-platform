@@ -112,6 +112,11 @@ describe("SapIntegrationService", () => {
       "https://sap.example/business-partners",
       expect.objectContaining({ method: "POST" })
     );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://sap.example/business-partners/addresses",
+      expect.objectContaining({ method: "PATCH" })
+    );
     expect(result.completed).toBe(true);
     const firstSegment = result.segments.find((segment) => segment.segment === "businessPartner");
     expect(firstSegment?.status).toBe("success");
@@ -147,6 +152,11 @@ describe("SapIntegrationService", () => {
     expect(statuses.roles).toBe("pending");
     expect(statuses.banks).toBe("pending");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://sap.example/business-partners/addresses",
+      expect.objectContaining({ method: "PATCH" })
+    );
     expect(onStateChange).toHaveBeenCalledTimes(4);
   });
 
@@ -165,5 +175,53 @@ describe("SapIntegrationService", () => {
 
     expect(result.completed).toBe(true);
     expect(result.segments.every((segment) => segment.status === "success")).toBe(true);
+  });
+
+  it("extracts detailed error messages returned by SAP payloads", async () => {
+    process.env.SAP_BASE_URL = "https://sap.example";
+    process.env.SAP_USER = "user";
+    process.env.SAP_PASSWORD = "secret";
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockFetchResponse({ Messages: [{ message: "Documento inválido" }] }, 400)
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const service = new SapIntegrationService();
+    const partner = createPartner();
+
+    const result = await service.integratePartner(partner, { segments: ["businessPartner"] });
+
+    const state = result.segments.find((item) => item.segment === "businessPartner");
+    expect(result.completed).toBe(false);
+    expect(state?.status).toBe("error");
+    expect(state?.errorMessage).toBe("Documento inválido");
+  });
+
+  it("marks selected segments as error", () => {
+    const service = new SapIntegrationService();
+    const partner = createPartner({
+      sap_segments: [
+        {
+          segment: "businessPartner",
+          status: "success",
+          sapId: "BP10",
+          lastSuccessAt: new Date().toISOString()
+        }
+      ] as any
+    });
+
+    const updated = service.markSegmentsAsError(partner, "Rejeitado manualmente", ["addresses"]);
+
+    const bpState = updated.find((item) => item.segment === "businessPartner");
+    const addressState = updated.find((item) => item.segment === "addresses");
+
+    expect(bpState?.status).toBe("success");
+    expect(bpState?.sapId).toBe("BP10");
+    expect(addressState?.status).toBe("error");
+    expect(addressState?.errorMessage).toBe("Rejeitado manualmente");
   });
 });

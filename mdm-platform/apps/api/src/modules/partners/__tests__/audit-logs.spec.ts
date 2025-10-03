@@ -22,6 +22,11 @@ describe("PartnersService audit processing", () => {
   const auditLogRepo = {
     save: vi.fn()
   };
+  const sapIntegration = {
+    integratePartner: vi.fn(),
+    retry: vi.fn(),
+    markSegmentsAsError: vi.fn().mockReturnValue([])
+  };
 
   let service: InstanceType<typeof PartnersService>;
 
@@ -33,7 +38,17 @@ describe("PartnersService audit processing", () => {
     auditJobRepo.update.mockReset();
     auditLogRepo.save.mockReset();
 
-    service = new PartnersService(repo as any, changeRepo as any, auditJobRepo as any, auditLogRepo as any);
+    sapIntegration.integratePartner.mockReset();
+    sapIntegration.retry.mockReset();
+    sapIntegration.markSegmentsAsError.mockClear();
+
+    service = new PartnersService(
+      repo as any,
+      changeRepo as any,
+      auditJobRepo as any,
+      auditLogRepo as any,
+      sapIntegration as any
+    );
   });
 
   it("persists differences when external data diverges", async () => {
