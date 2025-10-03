@@ -3,7 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import axios from "axios";
-import type { Partner, PartnerApprovalHistoryEntry, PartnerApprovalStage } from "@mdm/types";
+import type {
+  Partner,
+  PartnerApprovalHistoryEntry,
+  PartnerApprovalStage,
+  PartnerAuditLog,
+  PartnerAuditDifference
+} from "@mdm/types";
 import { ChangeRequestPayload } from "@mdm/types";
 import { getStoredUser, storeUser, StoredUser } from "../../../../lib/auth";
 
@@ -66,6 +72,49 @@ const actionLabels: Record<PartnerApprovalHistoryEntry["action"], string> = {
   rejected: "Rejeitado"
 };
 
+const auditResultLabels: Record<PartnerAuditLog["result"], string> = {
+  ok: "Sem divergências",
+  inconsistente: "Inconsistências",
+  erro: "Erro"
+};
+
+const auditResultStyles: Record<PartnerAuditLog["result"], string> = {
+  ok: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  inconsistente: "border-amber-200 bg-amber-50 text-amber-700",
+  erro: "border-red-200 bg-red-50 text-red-700"
+};
+
+const auditSourceLabels: Record<PartnerAuditDifference["source"], string> = {
+  external: "Fonte externa",
+  change_request: "Solicitação"
+};
+
+const auditScopeLabels: Record<string, string> = {
+  individual: "Individual",
+  massa: "Em massa"
+};
+
+const renderDiffValue = (value: unknown) => {
+  if (value === null || value === undefined) {
+    return <span className="text-xs text-zinc-500">—</span>;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed.length) {
+      return <span className="text-xs text-zinc-500">—</span>;
+    }
+    return <span className="text-sm text-zinc-700">{trimmed}</span>;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return <span className="text-sm text-zinc-700">{String(value)}</span>;
+  }
+  return (
+    <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-zinc-50 p-2 text-xs text-zinc-600">
+      {JSON.stringify(value, null, 2)}
+    </pre>
+  );
+};
+
 type StageStatus = {
   stage: PartnerApprovalStage;
   state: "pending" | "current" | "complete" | "rejected";
@@ -101,9 +150,10 @@ export default function PartnerDetailsPage() {
   const [error, setError] = useState<string | null>(null);
   const [partner, setPartner] = useState<Partner | null>(null);
   const [changeRequests, setChangeRequests] = useState<ChangeRequestItem[]>([]);
+  const [auditLogs, setAuditLogs] = useState<PartnerAuditLog[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"dados" | "solicitacoes">("dados");
+  const [tab, setTab] = useState<"dados" | "solicitacoes" | "auditorias">("dados");
   const [currentUser, setCurrentUser] = useState<StoredUser | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -124,7 +174,13 @@ export default function PartnerDetailsPage() {
         const response = await axios.get(url, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setPartner(response.data?.partner ?? null);
+        const details = response.data ?? {};
+        setPartner(details?.partner ?? null);
+        if (Array.isArray(details?.auditLogs)) {
+          setAuditLogs(details.auditLogs as PartnerAuditLog[]);
+        } else {
+          setAuditLogs([]);
+        }
       } catch (error: any) {
         if (error?.response?.status === 401) {
           localStorage.removeItem("mdmToken");
@@ -133,6 +189,7 @@ export default function PartnerDetailsPage() {
         }
         const message = error?.response?.data?.message;
         setError(typeof message === "string" ? message : "Não foi possível carregar o parceiro.");
+        setAuditLogs([]);
       } finally {
         setLoading(false);
       }
@@ -155,7 +212,7 @@ export default function PartnerDetailsPage() {
         const response = await axios.get(url, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setChangeRequests(response.data?.items ?? []);
+        setChangeRequests(Array.isArray(response.data?.items) ? response.data.items : []);
       } catch (error: any) {
         if (error?.response?.status === 401) {
           localStorage.removeItem("mdmToken");
@@ -452,6 +509,15 @@ export default function PartnerDetailsPage() {
         >
           Solicitações
         </button>
+        <button
+          type="button"
+          onClick={() => setTab("auditorias")}
+          className={`rounded-lg px-3 py-2 font-medium transition-colors ${
+            tab === "auditorias" ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:text-zinc-900"
+          }`}
+        >
+          Auditorias
+        </button>
       </div>
 
       {tab === "dados" && (
@@ -611,6 +677,93 @@ export default function PartnerDetailsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {tab === "auditorias" && (
+        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Auditorias</h2>
+            <p className="text-xs text-zinc-500">
+              {auditLogs.length === 0
+                ? "Sem auditorias registradas"
+                : `${auditLogs.length} ${auditLogs.length === 1 ? "auditoria" : "auditorias"} registradas`}
+            </p>
+          </div>
+          {auditLogs.length === 0 ? (
+            <p className="mt-4 text-sm text-zinc-500">Nenhuma auditoria registrada para este parceiro.</p>
+          ) : (
+            <div className="mt-4 flex flex-col gap-4">
+              {auditLogs.map((log) => (
+                <article key={log.id} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold text-zinc-800">
+                        {formatDateTime(log.createdAt)} • {auditResultLabels[log.result]}
+                      </div>
+                      <div className="text-xs text-zinc-500">
+                        {log.job?.id ? `Job ${log.job.id}` : "Auditoria registrada"}
+                        {log.job?.scope ? ` • ${auditScopeLabels[log.job.scope] ?? log.job.scope}` : ""}
+                        {log.job?.requestedBy ? ` • ${log.job.requestedBy}` : ""}
+                      </div>
+                      <div className="text-xs text-zinc-500">
+                        {log.differences?.length
+                          ? `${log.differences.length} ${log.differences.length === 1 ? "alteração" : "alterações"} identificada(s)`
+                          : "Nenhuma diferença registrada"}
+                      </div>
+                    </div>
+                    <span
+                      className={`self-start rounded-full border px-3 py-1 text-xs font-semibold ${auditResultStyles[log.result]}`}
+                    >
+                      {auditResultLabels[log.result]}
+                    </span>
+                  </div>
+                  {log.message && <p className="mt-2 text-sm text-zinc-600">{log.message}</p>}
+                  {log.differences?.length ? (
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                        <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                          <tr>
+                            <th className="px-4 py-2 text-left">Campo</th>
+                            <th className="px-4 py-2 text-left">Antes</th>
+                            <th className="px-4 py-2 text-left">Depois</th>
+                            <th className="px-4 py-2 text-left">Fonte</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-100">
+                          {log.differences.map((diff, index) => (
+                            <tr key={`${log.id}-${diff.field}-${index}`} className="align-top">
+                              <td className="px-4 py-2 text-sm text-zinc-700">
+                                <span className="font-semibold">{diff.label || diff.field}</span>
+                                <span className="block text-xs text-zinc-500">{diff.field}</span>
+                              </td>
+                              <td className="px-4 py-2">{renderDiffValue(diff.before)}</td>
+                              <td className="px-4 py-2">{renderDiffValue(diff.after)}</td>
+                              <td className="px-4 py-2 text-xs font-medium text-zinc-600">
+                                <span className="rounded-full bg-zinc-100 px-2 py-1">
+                                  {auditSourceLabels[diff.source]}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                  {log.externalData && (
+                    <details className="mt-3 text-sm text-zinc-600">
+                      <summary className="cursor-pointer text-xs font-semibold text-zinc-600">
+                        Ver metadados da auditoria
+                      </summary>
+                      <pre className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg bg-zinc-50 p-3 text-xs text-zinc-600">
+                        {JSON.stringify(log.externalData, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </article>
+              ))}
             </div>
           )}
         </section>
