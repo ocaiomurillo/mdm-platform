@@ -82,7 +82,19 @@ export const IsStateRegistration = (options?: StateRegistrationOptions) => {
           if (isEmpty(value)) return true;
           return validateIE(String(value), { allowIsento: options?.allowIsento });
         },
-        defaultMessage: () => options?.message ?? "Inscrição estadual inválida"
+        defaultMessage: (args: ValidationArguments) => {
+          const message = options?.message;
+
+          if (typeof message === "function") {
+            return message(args);
+          }
+
+          if (typeof message === "string") {
+            return message;
+          }
+
+          return "Inscrição estadual inválida";
+        }
       }
     });
   };
