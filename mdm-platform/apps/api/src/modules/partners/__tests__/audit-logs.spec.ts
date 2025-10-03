@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { PartnerAuditDifference } from "@mdm/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../entities/partner.entity", () => ({ Partner: class {} }));
@@ -16,6 +17,8 @@ describe("PartnersService audit processing", () => {
     find: vi.fn()
   };
   const auditJobRepo = {
+    create: vi.fn(),
+    save: vi.fn(),
     findOne: vi.fn(),
     update: vi.fn()
   };
@@ -34,6 +37,8 @@ describe("PartnersService audit processing", () => {
     vi.restoreAllMocks();
     repo.findOne.mockReset();
     changeRepo.find.mockReset();
+    auditJobRepo.create.mockReset();
+    auditJobRepo.save.mockReset();
     auditJobRepo.findOne.mockReset();
     auditJobRepo.update.mockReset();
     auditLogRepo.save.mockReset();
@@ -175,6 +180,76 @@ describe("PartnersService audit processing", () => {
         externalData: expect.objectContaining({ source: "change_request", changeRequestId: "cr-1" })
       })
     );
+  });
+
+  it("registers external audits with typed differences and payload metadata", async () => {
+    const partner = { id: "partner-ext" } as any;
+    const payload = {
+      origin: "externo",
+      motivo: "Atualização",
+      partners: [
+        {
+          partnerId: partner.id,
+          changes: [
+            {
+              field: "nome_legal",
+              label: "Nome legal",
+              previousValue: "Empresa Antiga",
+              newValue: "Empresa Nova"
+            }
+          ]
+        }
+      ]
+    };
+    const changeRequest = {
+      id: "cr-ext",
+      partnerId: partner.id,
+      requestType: "individual",
+      status: "pendente",
+      motivo: "Atualização",
+      requestedBy: "externo@example.com",
+      createdAt: new Date("2024-01-01T00:00:00.000Z"),
+      payload
+    } as any;
+
+    const job = { id: "job-ext", partnerIds: [partner.id] };
+    auditJobRepo.create.mockReturnValue(job);
+    auditJobRepo.save.mockResolvedValue(job);
+
+    await (service as any).registerExternalAudit(partner, changeRequest);
+
+    const expectedDifferences: PartnerAuditDifference[] = [
+      {
+        field: "nome_legal",
+        label: "Nome legal",
+        before: "Empresa Antiga",
+        after: "Empresa Nova",
+        source: "change_request"
+      }
+    ];
+
+    expect(auditJobRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ partnerIds: [partner.id], status: "registrado" })
+    );
+    expect(auditJobRepo.save).toHaveBeenCalledWith(job);
+    expect(auditLogRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: job.id,
+        partnerId: partner.id,
+        differences: expectedDifferences,
+        externalData: expect.objectContaining({
+          source: "change_request",
+          changeRequestId: changeRequest.id,
+          origin: payload.origin,
+          motivo: changeRequest.motivo,
+          payload
+        })
+      })
+    );
+
+    const lastCall = auditLogRepo.save.mock.calls[auditLogRepo.save.mock.calls.length - 1]?.[0];
+    expect(lastCall.differences).toStrictEqual(expectedDifferences);
+    expect(lastCall.externalData.payload).toBe(payload);
   });
 
   it("flags audit as error when no reference data is available", async () => {
