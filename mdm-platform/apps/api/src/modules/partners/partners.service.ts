@@ -19,6 +19,7 @@ import { Partner } from "./entities/partner.entity";
 import { PartnerAuditJob } from "./entities/partner-audit-job.entity";
 import { PartnerAuditLog } from "./entities/partner-audit-log.entity";
 import { PartnerChangeRequest } from "./entities/partner-change-request.entity";
+import { SapIntegrationService } from "./sap-integration.service";
 import {
   changeRequestFieldDefinitions,
   ChangeRequestOrigin,
@@ -155,7 +156,8 @@ export class PartnersService {
     @InjectRepository(Partner) private readonly repo: Repository<Partner>,
     @InjectRepository(PartnerChangeRequest) private readonly changeRepo: Repository<PartnerChangeRequest>,
     @InjectRepository(PartnerAuditJob) private readonly auditJobRepo: Repository<PartnerAuditJob>,
-    @InjectRepository(PartnerAuditLog) private readonly auditLogRepo: Repository<PartnerAuditLog>
+    @InjectRepository(PartnerAuditLog) private readonly auditLogRepo: Repository<PartnerAuditLog>,
+    private readonly sapIntegration: SapIntegrationService
   ) {}
 
   private getNextStage(current: PartnerApprovalStage): PartnerApprovalStage | null {
@@ -475,12 +477,64 @@ export class PartnersService {
     if (!nextStage || nextStage === FINAL_STAGE) {
       partner.approvalStage = FINAL_STAGE;
       partner.status = "aprovado";
-    } else {
-      partner.approvalStage = nextStage;
-      partner.status = "em_validacao";
+      await this.repo.save(partner);
+      return this.approve(partner.id);
     }
 
+    partner.approvalStage = nextStage;
+    partner.status = "em_validacao";
+
     return this.repo.save(partner);
+  }
+
+  async approve(id: string) {
+    const partner = await this.findOne(id);
+    if (partner.approvalStage !== FINAL_STAGE) {
+      throw new BadRequestException("Parceiro não está na etapa final para aprovação");
+    }
+
+    const result = await this.sapIntegration.integratePartner(partner, {
+      onStateChange: async (segments) => {
+        partner.sap_segments = segments;
+        await this.repo.update(partner.id, { sap_segments: segments });
+      }
+    });
+
+    partner.sap_segments = result.segments;
+    Object.entries(result.updates).forEach(([key, value]) => {
+      if (value !== undefined) {
+        (partner as any)[key] = value;
+      }
+    });
+
+    partner.status = result.completed ? "integrado" : "aprovado";
+    await this.repo.save(partner);
+    return partner;
+  }
+
+  async retrySapIntegration(id: string) {
+    const partner = await this.findOne(id);
+    if (partner.approvalStage !== FINAL_STAGE) {
+      throw new BadRequestException("Somente parceiros finalizados podem ser reenviados ao SAP");
+    }
+
+    const result = await this.sapIntegration.retry(partner, {
+      onStateChange: async (segments) => {
+        partner.sap_segments = segments;
+        await this.repo.update(partner.id, { sap_segments: segments });
+      }
+    });
+
+    partner.sap_segments = result.segments;
+    Object.entries(result.updates).forEach(([key, value]) => {
+      if (value !== undefined) {
+        (partner as any)[key] = value;
+      }
+    });
+
+    partner.status = result.completed ? "integrado" : "aprovado";
+    await this.repo.save(partner);
+    return partner;
   }
 
   async rejectStage(id: string, stage: PartnerApprovalStage, user: AuthenticatedUser, reason?: string) {

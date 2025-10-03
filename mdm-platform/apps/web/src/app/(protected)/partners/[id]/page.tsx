@@ -8,9 +8,11 @@ import type {
   PartnerApprovalHistoryEntry,
   PartnerApprovalStage,
   PartnerAuditLog,
-  PartnerAuditDifference
+  PartnerAuditDifference,
+  SapIntegrationSegmentState
 } from "@mdm/types";
 import { ChangeRequestPayload } from "@mdm/types";
+import { mapSapSegments, SAP_SEGMENT_LABELS, SAP_STATUS_LABELS, summarizeSapOverall, shouldAllowSapRetry, SapOverallTone } from "../sap-integration-helpers";
 import { getStoredUser, storeUser, StoredUser } from "../../../../lib/auth";
 
 type ChangeRequestItem = {
@@ -134,6 +136,20 @@ const stageStateStyles: Record<StageStatus["state"], string> = {
   rejected: "border-red-200 bg-red-50 text-red-700"
 };
 
+const sapSegmentStatusStyles: Record<SapIntegrationSegmentState["status"], string> = {
+  success: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  error: "border-red-200 bg-red-50 text-red-700",
+  processing: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  pending: "border-zinc-200 bg-white text-zinc-600"
+};
+
+const sapOverallToneStyles: Record<SapOverallTone, string> = {
+  success: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  error: "border-red-200 bg-red-50 text-red-700",
+  processing: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  pending: "border-zinc-200 bg-zinc-50 text-zinc-600"
+};
+
 const formatDateTime = (value?: string) => {
   if (!value) return "-";
   const date = new Date(value);
@@ -158,6 +174,9 @@ export default function PartnerDetailsPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [sapActionLoading, setSapActionLoading] = useState(false);
+  const [sapActionError, setSapActionError] = useState<string | null>(null);
+  const [sapActionSuccess, setSapActionSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!partnerId) return;
@@ -231,6 +250,19 @@ export default function PartnerDetailsPage() {
   useEffect(() => {
     setCurrentUser(getStoredUser());
   }, []);
+
+  const sapSegments = useMemo<SapIntegrationSegmentState[]>(() => {
+    if (!partner) return [];
+    return mapSapSegments(partner.sap_segments ?? []);
+  }, [partner]);
+
+  const sapOverall = useMemo(() => summarizeSapOverall(sapSegments), [sapSegments]);
+
+  const canRetrySapIntegration = useMemo(() => {
+    if (!partner) return false;
+    if ((partner.approvalStage || "") !== "finalizado") return false;
+    return shouldAllowSapRetry(sapSegments);
+  }, [partner, sapSegments]);
 
   const selectedPartnerSummary = useMemo(() => {
     if (!partner) return [] as Array<{ label: string; value: string }>;
@@ -348,6 +380,41 @@ export default function PartnerDetailsPage() {
       setActionError(typeof message === "string" ? message : "Não foi possível enviar para validação.");
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleRetrySapIntegration = async () => {
+    if (!partnerId || !process.env.NEXT_PUBLIC_API_URL) return;
+    setSapActionLoading(true);
+    setSapActionError(null);
+    setSapActionSuccess(null);
+    try {
+      const token = localStorage.getItem("mdmToken");
+      if (!token) {
+        router.replace("/login");
+        return;
+      }
+      const response = await axios.post(
+        `${process.env.NEXT_PUBLIC_API_URL}/partners/${partnerId}/integrations/sap/retry`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const updated = response.data?.partner ?? response.data;
+      if (updated) {
+        setPartner(updated);
+      }
+      setSapActionSuccess("Integração reenviada ao SAP.");
+    } catch (err: any) {
+      if (err?.response?.status === 401) {
+        localStorage.removeItem("mdmToken");
+        storeUser(null);
+        router.replace("/login");
+        return;
+      }
+      const message = err?.response?.data?.message;
+      setSapActionError(typeof message === "string" ? message : "Não foi possível reenviar ao SAP.");
+    } finally {
+      setSapActionLoading(false);
     }
   };
 
@@ -484,6 +551,9 @@ export default function PartnerDetailsPage() {
         <div className="flex flex-wrap gap-3 text-xs text-zinc-600">
           <span className="rounded-full bg-zinc-100 px-3 py-1">Natureza: {partner.natureza}</span>
           <span className="rounded-full bg-zinc-100 px-3 py-1">Status: {partner.status}</span>
+          <span className={`rounded-full border px-3 py-1 font-medium ${sapOverallToneStyles[sapOverall.tone]}`}>
+            SAP: {sapOverall.label}
+          </span>
           {partner.sapBusinessPartnerId && (
             <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">SAP BP {partner.sapBusinessPartnerId}</span>
           )}
@@ -617,6 +687,77 @@ export default function PartnerDetailsPage() {
                 )}
               </div>
             </div>
+          </section>
+
+
+
+          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Integração SAP</h2>
+                <p className="text-xs text-zinc-500">{sapOverall.description}</p>
+              </div>
+              <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${sapOverallToneStyles[sapOverall.tone]}`}>
+                {sapOverall.label}
+              </span>
+            </div>
+            {sapActionError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{sapActionError}</div>
+            )}
+            {sapActionSuccess && (
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                {sapActionSuccess}
+              </div>
+            )}
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {sapSegments.map((segment) => (
+                <div key={segment.segment} className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-zinc-800">
+                      {SAP_SEGMENT_LABELS[segment.segment as keyof typeof SAP_SEGMENT_LABELS] ?? segment.segment}
+                    </span>
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${sapSegmentStatusStyles[segment.status]}`}>
+                      {SAP_STATUS_LABELS[segment.status] ?? segment.status}
+                    </span>
+                  </div>
+                  <dl className="space-y-1 text-xs text-zinc-600">
+                    <div className="flex items-center justify-between gap-2">
+                      <dt className="font-medium text-zinc-500">Última tentativa</dt>
+                      <dd>{segment.lastAttemptAt ? formatDateTime(segment.lastAttemptAt) : "-"}</dd>
+                    </div>
+                    {segment.lastSuccessAt && (
+                      <div className="flex items-center justify-between gap-2">
+                        <dt className="font-medium text-zinc-500">Último sucesso</dt>
+                        <dd>{formatDateTime(segment.lastSuccessAt)}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  {segment.sapId && (
+                    <p className="text-xs text-zinc-500">
+                      SAP ID: <span className="font-medium text-zinc-700">{segment.sapId}</span>
+                    </p>
+                  )}
+                  {segment.errorMessage ? (
+                    <p className="text-xs text-red-600">{segment.errorMessage}</p>
+                  ) : segment.message ? (
+                    <p className="text-xs text-zinc-600">{segment.message}</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            {canRetrySapIntegration && (
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleRetrySapIntegration}
+                  disabled={sapActionLoading}
+                  className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition-opacity disabled:opacity-60"
+                >
+                  {sapActionLoading ? "Reprocessando..." : "Reprocessar integração"}
+                </button>
+                <p className="text-xs text-zinc-500">Tente novamente após ajustar eventuais pendências.</p>
+              </div>
+            )}
           </section>
 
           <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
