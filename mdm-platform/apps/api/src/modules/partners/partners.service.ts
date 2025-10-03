@@ -19,6 +19,8 @@ import { Partner } from "./entities/partner.entity";
 import { PartnerAuditJob } from "./entities/partner-audit-job.entity";
 import { PartnerAuditLog } from "./entities/partner-audit-log.entity";
 import { PartnerChangeRequest } from "./entities/partner-change-request.entity";
+import { PartnerNote } from "./entities/partner-note.entity";
+import { CreatePartnerNoteDto } from "./dto/partner-note.dto";
 import { SapIntegrationService, SAP_INTEGRATION_SEGMENTS } from "./sap-integration.service";
 import {
   changeRequestFieldDefinitions,
@@ -165,8 +167,17 @@ export class PartnersService {
     @InjectRepository(PartnerChangeRequest) private readonly changeRepo: Repository<PartnerChangeRequest>,
     @InjectRepository(PartnerAuditJob) private readonly auditJobRepo: Repository<PartnerAuditJob>,
     @InjectRepository(PartnerAuditLog) private readonly auditLogRepo: Repository<PartnerAuditLog>,
+    @InjectRepository(PartnerNote) private readonly noteRepo: Repository<PartnerNote>,
     private readonly sapIntegration: SapIntegrationService
   ) {}
+
+  private readonly recentNoteWindowMs = 7 * 24 * 60 * 60 * 1000;
+
+  private getRecentNotesThreshold(): Date {
+    const threshold = new Date();
+    threshold.setTime(threshold.getTime() - this.recentNoteWindowMs);
+    return threshold;
+  }
 
   private getNextStage(current: PartnerApprovalStage): PartnerApprovalStage | null {
     const index = WORKFLOW_STAGES.indexOf(current);
@@ -611,6 +622,15 @@ export class PartnersService {
       });
     }
 
+    const recentNotesThreshold = this.getRecentNotesThreshold();
+
+    qb.loadRelationCountAndMap(
+      "partner.recentNotesCount",
+      "partner.notes",
+      "recentNote",
+      (subQb) => subQb.where("recentNote.createdAt >= :recentNotesThreshold", { recentNotesThreshold })
+    );
+
     qb.orderBy("partner.nome_legal", "ASC");
     return qb.getMany();
   }
@@ -641,7 +661,41 @@ export class PartnersService {
 
     const registrationProgress = this.calculateRegistrationProgress(partner);
 
-    return { partner, changeRequests, auditLogs, registrationProgress };
+    const notes = await this.noteRepo.find({
+      where: { partnerId: id },
+      order: { createdAt: "DESC" },
+      take: 10
+    });
+
+    return { partner, changeRequests, auditLogs, registrationProgress, notes };
+  }
+
+  async listNotes(partnerId: string) {
+    await this.findOne(partnerId);
+
+    return this.noteRepo.find({
+      where: { partnerId },
+      order: { createdAt: "DESC" },
+      take: 50
+    });
+  }
+
+  async createNote(partnerId: string, dto: CreatePartnerNoteDto, user: AuthenticatedUser) {
+    const content = dto.content?.trim();
+    if (!content) {
+      throw new BadRequestException("Informe o conteúdo da nota");
+    }
+
+    await this.findOne(partnerId);
+
+    const note = this.noteRepo.create({
+      partnerId,
+      content,
+      createdById: user?.id,
+      createdByName: user?.name ?? user?.email ?? null
+    });
+
+    return this.noteRepo.save(note);
   }
 
   async createChangeRequest(partnerId: string, dto: CreateChangeRequestDto) {

@@ -2,6 +2,7 @@ import { Column, CreateDateColumn, Entity, Generated, OneToMany, PrimaryGenerate
 import { PartnerApprovalHistoryEntry, PartnerApprovalStage, SapIntegrationSegmentState } from "@mdm/types";
 import { PartnerAuditLog } from "./partner-audit-log.entity";
 import { PartnerChangeRequest } from "./partner-change-request.entity";
+import { PartnerNote } from "./partner-note.entity";
 
 @Entity("business_partners")
 export class Partner {
@@ -111,4 +112,9 @@ export class Partner {
 
   @OneToMany(() => PartnerAuditLog, (log) => log.partner)
   auditLogs!: PartnerAuditLog[];
+
+  @OneToMany(() => PartnerNote, (note) => note.partner)
+  notes!: PartnerNote[];
+
+  recentNotesCount?: number;
 }

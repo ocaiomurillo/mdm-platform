@@ -6,6 +6,7 @@ import { CreatePartnerDto } from "./dto/create-partner.dto";
 import { ChangeRequestListQueryDto, CreateBulkChangeRequestDto, CreateChangeRequestDto } from "./dto/change-request.dto";
 import { AuthenticatedUser, PartnersService } from "./partners.service";
 import { SAP_INTEGRATION_SEGMENTS } from "./sap-integration.service";
+import { CreatePartnerNoteDto } from "./dto/partner-note.dto";
 
 class AuditRequestDto {
   partnerIds!: string[];
@@ -49,6 +50,16 @@ export class PartnersController {
   @Get(":id/details")
   getDetails(@Param("id") id: string) {
     return this.svc.getDetails(id);
+  }
+
+  @Get(":id/notes")
+  listNotes(@Param("id") id: string) {
+    return this.svc.listNotes(id);
+  }
+
+  @Post(":id/notes")
+  createNote(@Param("id") id: string, @Body() dto: CreatePartnerNoteDto, @Req() req: AuthenticatedRequest) {
+    return this.svc.createNote(id, dto, req.user);
   }
 
   @Post(":id/change-requests")
