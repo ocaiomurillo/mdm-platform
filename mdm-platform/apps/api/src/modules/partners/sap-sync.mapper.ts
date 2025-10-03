@@ -1,3 +1,4 @@
+import { onlyDigits } from "@mdm/utils";
 import { SapIntegrationSegment } from "@mdm/types";
 import { Partner } from "./entities/partner.entity";
 
@@ -188,7 +189,10 @@ export const mapSapPartnerPayload = (payload: SapPartnerPayload): Partial<Partne
 
   const document = coerceString(payload.document);
   if (document) {
-    updates.documento = document;
+    const digits = onlyDigits(document);
+    if (digits) {
+      updates.documento = digits;
+    }
   }
 
   const personType = coerceEnum(payload.personType as string, ["PJ", "PF"]);
