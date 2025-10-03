@@ -9,10 +9,11 @@ import { PartnersController } from './partners.controller';
 import { AuthModule } from '../auth/auth.module';
 import { SapIntegrationService } from './sap-integration.service';
 import { SapSyncService } from './sap-sync.service';
+import { PartnerNote } from './entities/partner-note.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Partner, PartnerChangeRequest, PartnerAuditJob, PartnerAuditLog]),
+    TypeOrmModule.forFeature([Partner, PartnerChangeRequest, PartnerAuditJob, PartnerAuditLog, PartnerNote]),
     AuthModule,
   ],
   providers: [PartnersService, SapIntegrationService, SapSyncService],
