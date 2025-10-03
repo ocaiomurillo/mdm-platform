@@ -1,13 +1,12 @@
 import "reflect-metadata";
 import { PartnerAuditDifference } from "@mdm/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PartnersService } from "../partners.service";
 
 vi.mock("../entities/partner.entity", () => ({ Partner: class {} }));
 vi.mock("../entities/partner-change-request.entity", () => ({ PartnerChangeRequest: class {} }));
 vi.mock("../entities/partner-audit-job.entity", () => ({ PartnerAuditJob: class {} }));
 vi.mock("../entities/partner-audit-log.entity", () => ({ PartnerAuditLog: class {} }));
-
-const { PartnersService } = await import("../partners.service");
 
 describe("PartnersService audit processing", () => {
   const repo = {
@@ -23,6 +22,11 @@ describe("PartnersService audit processing", () => {
     update: vi.fn()
   };
   const auditLogRepo = {
+    save: vi.fn()
+  };
+  const noteRepo = {
+    find: vi.fn(),
+    create: vi.fn(),
     save: vi.fn()
   };
   const sapIntegration = {
@@ -42,6 +46,9 @@ describe("PartnersService audit processing", () => {
     auditJobRepo.findOne.mockReset();
     auditJobRepo.update.mockReset();
     auditLogRepo.save.mockReset();
+    noteRepo.find.mockReset();
+    noteRepo.create.mockReset();
+    noteRepo.save.mockReset();
 
     sapIntegration.integratePartner.mockReset();
     sapIntegration.retry.mockReset();
@@ -52,6 +59,7 @@ describe("PartnersService audit processing", () => {
       changeRepo as any,
       auditJobRepo as any,
       auditLogRepo as any,
+      noteRepo as any,
       sapIntegration as any
     );
   });

@@ -3,14 +3,13 @@ import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { BadRequestException } from "@nestjs/common";
+import { CreatePartnerDto } from "../dto/create-partner.dto";
+import { PartnersService } from "../partners.service";
 
 vi.mock("../entities/partner.entity", () => ({ Partner: class {} }));
 vi.mock("../entities/partner-change-request.entity", () => ({ PartnerChangeRequest: class {} }));
 vi.mock("../entities/partner-audit-job.entity", () => ({ PartnerAuditJob: class {} }));
 vi.mock("../entities/partner-audit-log.entity", () => ({ PartnerAuditLog: class {} }));
-
-const { CreatePartnerDto } = await import("../dto/create-partner.dto");
-const { PartnersService } = await import("../partners.service");
 
 const basePayload = {
   tipo_pessoa: "PJ" as const,
@@ -84,17 +83,21 @@ describe("PartnersService lookup", () => {
   const changeRepo = { find: vi.fn(), save: vi.fn() };
   const auditJobRepo = { findOne: vi.fn(), update: vi.fn() };
   const auditLogRepo = { save: vi.fn() };
+  const noteRepo = { find: vi.fn(), create: vi.fn(), save: vi.fn() };
   const sapIntegration = {
     integratePartner: vi.fn().mockResolvedValue({ segments: [], completed: true, updates: {} }),
     retry: vi.fn().mockResolvedValue({ segments: [], completed: true, updates: {} }),
     markSegmentsAsError: vi.fn().mockReturnValue([])
   };
 
-  let service: PartnersService;
+  let service: InstanceType<typeof PartnersService>;
 
   beforeEach(() => {
     vi.restoreAllMocks();
     repo.findOne.mockReset();
+    noteRepo.find.mockReset();
+    noteRepo.create.mockReset();
+    noteRepo.save.mockReset();
     sapIntegration.integratePartner.mockReset();
     sapIntegration.retry.mockReset();
     sapIntegration.markSegmentsAsError.mockClear();
@@ -103,6 +106,7 @@ describe("PartnersService lookup", () => {
       changeRepo as any,
       auditJobRepo as any,
       auditLogRepo as any,
+      noteRepo as any,
       sapIntegration as any
     );
   });
