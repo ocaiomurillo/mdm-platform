@@ -50,6 +50,27 @@ describe("mapSapPartnerPayload", () => {
     expect(result.transportadores).toEqual([{ sap_bp: "T1" }]);
   });
 
+  it("normalizes communication emails keeping default flags", () => {
+    const payload = {
+      communication: {
+        emails: [
+          { address: "primary@example.com", default: true },
+          { address: "secondary@example.com" },
+          { address: "", default: true },
+          { address: "tertiary@example.com", default: false }
+        ]
+      }
+    };
+
+    const result = mapSapPartnerPayload(payload as any);
+
+    expect(result.comunicacao?.emails).toEqual([
+      { endereco: "primary@example.com", padrao: true },
+      { endereco: "secondary@example.com", padrao: false },
+      { endereco: "tertiary@example.com", padrao: false }
+    ]);
+  });
+
   it("normalizes segments removing invalid entries", () => {
     const payload = {
       sapSegments: [
