@@ -1041,11 +1041,40 @@ export class PartnersService {
     });
     await this.auditJobRepo.save(job);
 
+    const payload = changeRequest?.payload ?? {};
+    const partnerEntries = Array.isArray((payload as any)?.partners) ? (payload as any).partners : [];
+    const differences: PartnerAuditDifference[] = partnerEntries.flatMap((entry: any) => {
+      const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+      return changes.map((change: any) => ({
+        field: change?.field ?? "unknown",
+        label: change?.label ?? change?.field ?? "unknown",
+        before: change?.previousValue ?? null,
+        after: change?.newValue ?? null,
+        source: "change_request" as const
+      }));
+    });
+
+    const externalData = {
+      source: "change_request",
+      changeRequestId: changeRequest.id,
+      requestType: changeRequest.requestType,
+      status: changeRequest.status,
+      origin: (payload as any)?.origin ?? null,
+      motivo: changeRequest.motivo ?? null,
+      requestedBy: changeRequest.requestedBy ?? null,
+      createdAt:
+        changeRequest.createdAt instanceof Date
+          ? changeRequest.createdAt.toISOString()
+          : changeRequest.createdAt ?? null,
+      payload
+    };
+
     await this.auditLogRepo.save({
       jobId: job.id,
       partnerId: partner.id,
       result: "inconsistente",
-      differences: changeRequest.payload,
+      differences,
+      externalData,
       message: `Solicitacao externa de alteracao ${changeRequest.id}`
     });
   }
