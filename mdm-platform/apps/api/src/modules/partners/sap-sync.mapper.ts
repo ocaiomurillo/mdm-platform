@@ -78,7 +78,10 @@ const sanitizeEmails = (
           if (!address) return null;
           return { endereco: address, padrao: Boolean(email?.default ?? false) };
         })
-        .filter((item): item is { endereco: string; padrao?: boolean } => Boolean(item))
+        .filter(
+          (item): item is { endereco: string; padrao: boolean } =>
+            Boolean(item && typeof item.padrao === "boolean")
+        )
     : undefined;
 
   const normalized: Partner["comunicacao"] = {};
