@@ -4,6 +4,9 @@ import { TypeOrmModule, TypeOrmModuleOptions } from "@nestjs/typeorm";
 
 import { PartnersModule } from "./modules/partners/partners.module";
 import { AuthModule } from "./modules/auth/auth.module";
+import { NotificationsModule } from "./modules/notifications/notifications.module";
+import { UserMaintenanceModule } from "./modules/user-maintenance/user-maintenance.module";
+import { HistoryModule } from "./modules/history/history.module";
 
 const dbUrl = process.env.DATABASE_URL || "postgres://mdm:mdm@localhost:5432/mdm";
 
@@ -19,7 +22,10 @@ const typeOrmConfig: TypeOrmModuleOptions = {
     ScheduleModule.forRoot(),
     TypeOrmModule.forRoot(typeOrmConfig),
     PartnersModule,
-    AuthModule
+    AuthModule,
+    NotificationsModule,
+    UserMaintenanceModule,
+    HistoryModule
   ]
 })
 export class AppModule {}
