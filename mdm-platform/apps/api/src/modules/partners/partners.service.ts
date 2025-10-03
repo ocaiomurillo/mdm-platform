@@ -24,6 +24,7 @@ import {
   changeRequestFieldDefinitions,
   ChangeRequestOrigin,
   ChangeRequestPayload,
+  PartnerAuditDifference,
   PartnerApprovalAction,
   PartnerApprovalHistoryEntry,
   PartnerApprovalStage
@@ -45,6 +46,106 @@ const STAGE_PERMISSION: Record<PartnerApprovalStage, string | null> = {
   compras: "partners.approval.compras",
   dados_mestres: "partners.approval.dados_mestres",
   finalizado: null
+};
+
+type AuditFieldMapping = {
+  field: string;
+  label: string;
+  partnerPath: string;
+  externalPath: string;
+  partnerTransform?: (value: any) => any;
+  externalTransform?: (value: any) => any;
+};
+
+const trimValue = (value: any) => (typeof value === "string" ? value.trim() : value);
+const toLower = (value: any) => (typeof value === "string" ? value.trim().toLowerCase() : value);
+const toUpper = (value: any) => (typeof value === "string" ? value.trim().toUpperCase() : value);
+const toDigits = (value: any) => (typeof value === "string" ? value.replace(/\D+/g, "") : value);
+
+const AUDIT_FIELD_MAPPINGS: AuditFieldMapping[] = [
+  { field: "documento", label: "Documento", partnerPath: "documento", externalPath: "documento", partnerTransform: toDigits, externalTransform: toDigits },
+  { field: "nome_legal", label: "Nome legal", partnerPath: "nome_legal", externalPath: "nome_legal", partnerTransform: trimValue, externalTransform: trimValue },
+  { field: "nome_fantasia", label: "Nome fantasia", partnerPath: "nome_fantasia", externalPath: "nome_fantasia", partnerTransform: trimValue, externalTransform: trimValue },
+  { field: "regime_tributario", label: "Regime tributário", partnerPath: "regime_tributario", externalPath: "regime_tributario", partnerTransform: trimValue, externalTransform: trimValue },
+  {
+    field: "contato_principal.email",
+    label: "Contato - email",
+    partnerPath: "contato_principal.email",
+    externalPath: "contato.email",
+    partnerTransform: toLower,
+    externalTransform: toLower
+  },
+  {
+    field: "contato_principal.fone",
+    label: "Contato - telefone",
+    partnerPath: "contato_principal.fone",
+    externalPath: "contato.telefone",
+    partnerTransform: toDigits,
+    externalTransform: toDigits
+  },
+  {
+    field: "addresses.0.cep",
+    label: "Endereço - CEP",
+    partnerPath: "addresses.0.cep",
+    externalPath: "endereco.cep",
+    partnerTransform: toDigits,
+    externalTransform: toDigits
+  },
+  {
+    field: "addresses.0.logradouro",
+    label: "Endereço - Logradouro",
+    partnerPath: "addresses.0.logradouro",
+    externalPath: "endereco.logradouro",
+    partnerTransform: trimValue,
+    externalTransform: trimValue
+  },
+  {
+    field: "addresses.0.numero",
+    label: "Endereço - Número",
+    partnerPath: "addresses.0.numero",
+    externalPath: "endereco.numero",
+    partnerTransform: trimValue,
+    externalTransform: trimValue
+  },
+  {
+    field: "addresses.0.complemento",
+    label: "Endereço - Complemento",
+    partnerPath: "addresses.0.complemento",
+    externalPath: "endereco.complemento",
+    partnerTransform: trimValue,
+    externalTransform: trimValue
+  },
+  {
+    field: "addresses.0.bairro",
+    label: "Endereço - Bairro",
+    partnerPath: "addresses.0.bairro",
+    externalPath: "endereco.bairro",
+    partnerTransform: trimValue,
+    externalTransform: trimValue
+  },
+  {
+    field: "addresses.0.municipio",
+    label: "Endereço - Município",
+    partnerPath: "addresses.0.municipio",
+    externalPath: "endereco.municipio",
+    partnerTransform: trimValue,
+    externalTransform: trimValue
+  },
+  {
+    field: "addresses.0.uf",
+    label: "Endereço - UF",
+    partnerPath: "addresses.0.uf",
+    externalPath: "endereco.uf",
+    partnerTransform: toUpper,
+    externalTransform: toUpper
+  },
+  { field: "ie", label: "Inscrição estadual", partnerPath: "ie", externalPath: "inscricao_estadual", partnerTransform: trimValue, externalTransform: trimValue },
+  { field: "suframa", label: "SUFRAMA", partnerPath: "suframa", externalPath: "suframa", partnerTransform: trimValue, externalTransform: trimValue }
+];
+
+type AuditComparisonSegment = {
+  differences: PartnerAuditDifference[];
+  externalData?: any;
 };
 
 @Injectable()
@@ -518,6 +619,201 @@ export class PartnersService {
     };
   }
 
+  private async buildAuditComparison(partner: Partner) {
+    const differences: PartnerAuditDifference[] = [];
+    const dataSources: any[] = [];
+    let hasReference = false;
+    const warnings: string[] = [];
+
+    const externalComparison = await this.compareWithExternalSource(partner).catch((error) => {
+      warnings.push(error instanceof Error ? error.message : String(error));
+      return null;
+    });
+
+    if (externalComparison) {
+      hasReference = true;
+      differences.push(...externalComparison.differences);
+      if (externalComparison.externalData) {
+        dataSources.push(externalComparison.externalData);
+      }
+    }
+
+    if (!differences.length) {
+      const changeComparison = await this.compareWithChangeRequests(partner);
+      if (changeComparison) {
+        hasReference = true;
+        differences.push(...changeComparison.differences);
+        if (changeComparison.externalData) {
+          dataSources.push(changeComparison.externalData);
+        }
+      }
+    }
+
+    const externalData =
+      dataSources.length === 0 ? null : dataSources.length === 1 ? dataSources[0] : { sources: dataSources };
+
+    let result: "ok" | "inconsistente" | "erro" = "ok";
+    let message = "Nenhuma diferença identificada.";
+
+    if (differences.length) {
+      result = "inconsistente";
+      message = "Diferenças encontradas entre o cadastro e a fonte de referência.";
+      if (warnings.length) {
+        message += ` Observações: ${warnings.join("; ")}.`;
+      }
+    } else if (!hasReference) {
+      result = "erro";
+      message = warnings.length
+        ? `Não foi possível obter dados para comparação: ${warnings.join("; ")}`
+        : "Nenhuma fonte de comparação disponível para este parceiro.";
+    } else if (warnings.length) {
+      message = `Auditoria concluída sem diferenças. Observações: ${warnings.join("; ")}.`;
+    }
+
+    return { differences, externalData, result, message };
+  }
+
+  private async compareWithExternalSource(partner: Partner): Promise<AuditComparisonSegment | null> {
+    if (partner.tipo_pessoa !== "PJ") {
+      return null;
+    }
+
+    const document = onlyDigits(partner.documento);
+    if (!document) {
+      return null;
+    }
+
+    const payload = await this.fetchFromCnpja(document);
+    const normalizedPayload = this.normalizeCnpjPayload(payload);
+    const { raw, ...normalized } = normalizedPayload ?? {};
+
+    const differences = this.calculateExternalDifferences(partner, normalized);
+    const externalData = {
+      source: "cnpja",
+      document,
+      fetchedAt: new Date().toISOString(),
+      raw,
+      normalized
+    };
+
+    return { differences, externalData };
+  }
+
+  private async compareWithChangeRequests(partner: Partner): Promise<AuditComparisonSegment | null> {
+    const requests = await this.changeRepo.find({
+      where: { partnerId: partner.id },
+      order: { createdAt: "DESC" },
+      take: 5
+    });
+
+    for (const request of requests) {
+      const payload = request?.payload ?? {};
+      const partners = Array.isArray(payload?.partners) ? payload.partners : [];
+      const entry =
+        partners.find((item: any) => item?.partnerId === partner.id) ??
+        (partners.length > 0 ? partners[0] : null);
+      const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+      if (!changes.length) {
+        continue;
+      }
+
+      const differences: PartnerAuditDifference[] = changes.map((change: any) => ({
+        field: change?.field ?? "unknown",
+        label: change?.label ?? change?.field,
+        before: change?.previousValue ?? null,
+        after: change?.newValue ?? null,
+        source: "change_request",
+        metadata: {
+          changeRequestId: request.id,
+          requestType: request.requestType,
+          status: request.status,
+          requestedBy: request.requestedBy ?? null,
+          createdAt: request.createdAt instanceof Date ? request.createdAt.toISOString() : request.createdAt,
+          payloadMetadata: payload?.metadata,
+          partnerEntryMetadata: entry?.metadata
+        }
+      }));
+
+      const externalData = {
+        source: "change_request",
+        changeRequestId: request.id,
+        requestType: request.requestType,
+        status: request.status,
+        requestedBy: request.requestedBy ?? null,
+        createdAt: request.createdAt instanceof Date ? request.createdAt.toISOString() : request.createdAt,
+        payload
+      };
+
+      return { differences, externalData };
+    }
+
+    return null;
+  }
+
+  private calculateExternalDifferences(partner: Partner, normalized: Record<string, any>) {
+    if (!normalized) {
+      return [] as PartnerAuditDifference[];
+    }
+
+    const differences: PartnerAuditDifference[] = [];
+    for (const mapping of AUDIT_FIELD_MAPPINGS) {
+      const rawPartnerValue = this.resolvePath(partner, mapping.partnerPath);
+      const rawExternalValue = this.resolvePath(normalized, mapping.externalPath);
+      const partnerValue = mapping.partnerTransform ? mapping.partnerTransform(rawPartnerValue) : rawPartnerValue;
+      const externalValue = mapping.externalTransform ? mapping.externalTransform(rawExternalValue) : rawExternalValue;
+
+      if (!this.hasSameValue(partnerValue, externalValue)) {
+        differences.push({
+          field: mapping.field,
+          label: mapping.label,
+          before: partnerValue ?? null,
+          after: externalValue ?? null,
+          source: "external",
+          metadata: {
+            partnerPath: mapping.partnerPath,
+            externalPath: mapping.externalPath,
+            rawPartnerValue: rawPartnerValue ?? null,
+            rawExternalValue: rawExternalValue ?? null
+          }
+        });
+      }
+    }
+
+    return differences;
+  }
+
+  private hasSameValue(a: any, b: any) {
+    const normalizedA = this.normalizeComparisonValue(a);
+    const normalizedB = this.normalizeComparisonValue(b);
+    return JSON.stringify(normalizedA) === JSON.stringify(normalizedB);
+  }
+
+  private normalizeComparisonValue(value: any): any {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (typeof value === "string") {
+      return value.trim();
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+      return value;
+    }
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => this.normalizeComparisonValue(item));
+    }
+    if (typeof value === "object") {
+      const result: Record<string, any> = {};
+      for (const key of Object.keys(value).sort()) {
+        result[key] = this.normalizeComparisonValue((value as any)[key]);
+      }
+      return result;
+    }
+    return value;
+  }
+
   private async processAuditJob(jobId: string) {
     const job = await this.auditJobRepo.findOne({ where: { id: jobId } });
     if (!job) return;
@@ -538,11 +834,14 @@ export class PartnersService {
             continue;
           }
 
+          const comparison = await this.buildAuditComparison(partner);
           await this.auditLogRepo.save({
             jobId,
             partnerId,
-            result: "ok",
-            message: "Auditoria executada"
+            result: comparison.result,
+            message: comparison.message,
+            differences: comparison.differences.length ? comparison.differences : null,
+            externalData: comparison.externalData
           });
         } catch (error) {
           await this.auditLogRepo.save({
@@ -679,12 +978,22 @@ export class PartnersService {
   }
 
   private resolvePartnerFieldValue(partner: Partner, path: string) {
+    return this.resolvePath(partner, path);
+  }
+
+  private resolvePath(source: any, path: string) {
+    if (!path) {
+      return source;
+    }
     return path.split(".").reduce<any>((acc, segment) => {
       if (acc === undefined || acc === null) {
         return undefined;
       }
-      return acc[segment];
-    }, partner as any);
+      if (Array.isArray(acc) && /^\d+$/.test(segment)) {
+        return acc[Number(segment)];
+      }
+      return (acc as any)[segment];
+    }, source);
   }
 
   private async registerExternalAudit(partner: Partner, changeRequest: PartnerChangeRequest) {
