@@ -8,13 +8,14 @@ import { PartnersService } from './partners.service';
 import { PartnersController } from './partners.controller';
 import { AuthModule } from '../auth/auth.module';
 import { SapIntegrationService } from './sap-integration.service';
+import { SapSyncService } from './sap-sync.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Partner, PartnerChangeRequest, PartnerAuditJob, PartnerAuditLog]),
     AuthModule,
   ],
-  providers: [PartnersService, SapIntegrationService],
+  providers: [PartnersService, SapIntegrationService, SapSyncService],
   controllers: [PartnersController],
 })
 export class PartnersModule {}

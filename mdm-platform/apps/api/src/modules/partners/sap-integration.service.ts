@@ -43,7 +43,7 @@ export class SapIntegrationService {
       return { segments: states, completed: true, updates: {} };
     }
 
-    if (!this.isEnabled()) {
+    if (!this.isEnabled) {
       const now = new Date().toISOString();
       states = states.map((state) =>
         segments.includes(state.segment)
@@ -61,7 +61,7 @@ export class SapIntegrationService {
       return { segments: states, completed: true, updates: {} };
     }
 
-    if (!this.isConfigured()) {
+    if (!this.isConfigured) {
       const now = new Date().toISOString();
       const message = "Configuração SAP incompleta. Defina SAP_BASE_URL, SAP_USER e SAP_PASSWORD.";
       states = states.map((state) =>
