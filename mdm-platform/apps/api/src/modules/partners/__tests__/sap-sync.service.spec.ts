@@ -1,15 +1,10 @@
 import "reflect-metadata";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SapSyncService } from "../sap-sync.service";
 
 vi.mock("../entities/partner.entity", () => ({ Partner: class Partner {} }));
 vi.mock("../entities/partner-audit-log.entity", () => ({ PartnerAuditLog: class PartnerAuditLog {} }));
 vi.mock("../entities/partner-audit-job.entity", () => ({ PartnerAuditJob: class PartnerAuditJob {} }));
-
-let SapSyncService: typeof import("../sap-sync.service").SapSyncService;
-
-beforeAll(async () => {
-  ({ SapSyncService } = await import("../sap-sync.service"));
-});
 
 const originalEnv = {
   SAP_BASE_URL: process.env.SAP_BASE_URL,
