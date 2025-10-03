@@ -28,6 +28,9 @@ import {
   PartnerApprovalAction,
   PartnerApprovalHistoryEntry,
   PartnerApprovalStage,
+  PartnerRegistrationProgress,
+  PartnerRegistrationStep,
+  PartnerRegistrationStepStatus,
   SapIntegrationSegment,
   SapIntegrationSegmentState
 } from "@mdm/types";
@@ -235,6 +238,250 @@ export class PartnersService {
     });
   }
 
+  private hasValue(value: unknown): boolean {
+    if (value === null || value === undefined) {
+      return false;
+    }
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+      return true;
+    }
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    }
+    if (typeof value === "object") {
+      return Object.values(value as Record<string, unknown>).some((item) => this.hasValue(item));
+    }
+    return false;
+  }
+
+  private evaluateRequiredFields(
+    fields: Array<{ label: string; value: unknown; required?: boolean }>
+  ): {
+    missing: string[];
+    status: PartnerRegistrationStepStatus;
+    completedItems: number;
+    totalItems: number;
+  } {
+    const totalItems = fields.length;
+    const requiredFields = fields.filter((field) => field.required !== false);
+    const optionalFields = fields.filter((field) => field.required === false);
+
+    const missing = requiredFields
+      .filter((field) => !this.hasValue(field.value))
+      .map((field) => field.label);
+
+    const completedRequired = requiredFields.length - missing.length;
+    const completedOptional = optionalFields.filter((field) => this.hasValue(field.value)).length;
+    const completedItems = completedRequired + completedOptional;
+
+    let status: PartnerRegistrationStepStatus = "pending";
+    if (totalItems === 0) {
+      status = "pending";
+    } else if (missing.length === 0) {
+      status = "complete";
+    } else if (completedItems > 0) {
+      status = "in_progress";
+    }
+
+    return {
+      missing,
+      status,
+      completedItems,
+      totalItems
+    };
+  }
+
+  private calculateRegistrationProgress(partner: Partner): PartnerRegistrationProgress {
+    const steps: PartnerRegistrationStep[] = [];
+
+    const basicResult = this.evaluateRequiredFields([
+      { label: "Tipo de pessoa", value: partner.tipo_pessoa },
+      { label: "Natureza", value: partner.natureza },
+      { label: "Nome legal", value: partner.nome_legal }
+    ]);
+
+    steps.push({
+      id: "basicData",
+      label: "Dados básicos",
+      status: basicResult.status,
+      completedItems: basicResult.completedItems,
+      totalItems: basicResult.totalItems,
+      missing: basicResult.missing
+    });
+
+    const documentLabel = partner.tipo_pessoa === "PJ" ? "CNPJ" : "CPF";
+    const documentsResult = this.evaluateRequiredFields([
+      { label: documentLabel, value: partner.documento },
+      { label: "Inscrição estadual", value: partner.ie, required: false },
+      { label: "Inscrição municipal", value: partner.im, required: false },
+      { label: "SUFRAMA", value: partner.suframa, required: false }
+    ]);
+
+    steps.push({
+      id: "documents",
+      label: "Documentos",
+      status: documentsResult.status,
+      completedItems: documentsResult.completedItems,
+      totalItems: documentsResult.totalItems,
+      missing: documentsResult.missing
+    });
+
+    const contactsResult = this.evaluateRequiredFields([
+      { label: "Nome do contato principal", value: partner.contato_principal?.nome },
+      { label: "E-mail do contato principal", value: partner.contato_principal?.email },
+      { label: "Telefone principal", value: partner.contato_principal?.fone, required: false },
+      { label: "Telefone comercial", value: partner.comunicacao?.telefone, required: false },
+      { label: "Celular", value: partner.comunicacao?.celular, required: false },
+      { label: "E-mails de comunicação", value: partner.comunicacao?.emails, required: false }
+    ]);
+
+    steps.push({
+      id: "contacts",
+      label: "Contatos",
+      status: contactsResult.status,
+      completedItems: contactsResult.completedItems,
+      totalItems: contactsResult.totalItems,
+      missing: contactsResult.missing
+    });
+
+    const addresses = Array.isArray(partner.addresses) ? partner.addresses : [];
+    const primaryAddress = addresses[0] ?? null;
+    const addressComplete =
+      primaryAddress &&
+      this.hasValue((primaryAddress as any)?.cep) &&
+      this.hasValue((primaryAddress as any)?.logradouro) &&
+      this.hasValue((primaryAddress as any)?.numero) &&
+      this.hasValue((primaryAddress as any)?.bairro) &&
+      (this.hasValue((primaryAddress as any)?.municipio) || this.hasValue((primaryAddress as any)?.municipio_ibge)) &&
+      this.hasValue((primaryAddress as any)?.uf);
+
+    steps.push({
+      id: "addresses",
+      label: "Endereços",
+      status: addressComplete ? "complete" : addresses.length > 0 ? "in_progress" : "pending",
+      completedItems: addressComplete ? 1 : 0,
+      totalItems: 1,
+      missing: addressComplete
+        ? []
+        : [addresses.length ? "Endereço principal incompleto" : "Cadastrar endereço principal"]
+    });
+
+    const banks = Array.isArray(partner.banks) ? partner.banks : [];
+    const validBank = banks.find(
+      (bank) =>
+        this.hasValue((bank as any)?.banco) &&
+        this.hasValue((bank as any)?.agencia) &&
+        this.hasValue((bank as any)?.conta)
+    );
+
+    steps.push({
+      id: "banks",
+      label: "Dados bancários",
+      status: validBank ? "complete" : banks.length > 0 ? "in_progress" : "pending",
+      completedItems: validBank ? 1 : 0,
+      totalItems: 1,
+      missing: validBank
+        ? []
+        : [banks.length ? "Dados bancários incompletos" : "Adicionar dados bancários"]
+    });
+
+    const segments = Array.isArray(partner.sap_segments) ? partner.sap_segments : [];
+    const segmentMap = new Map(segments.map((segment) => [segment.segment, segment]));
+    let completedSegments = 0;
+    let hasSegmentActivity = false;
+    let hasSegmentError = false;
+
+    for (const segment of SAP_SEGMENTS) {
+      const current = segmentMap.get(segment);
+      if (!current) {
+        continue;
+      }
+      hasSegmentActivity = true;
+      if (current.status === "success") {
+        completedSegments += 1;
+      }
+      if (current.status === "error") {
+        hasSegmentError = true;
+      }
+      if (current.status === "processing" || current.status === "pending") {
+        hasSegmentActivity = true;
+      }
+    }
+
+    let integrationStatus: PartnerRegistrationStepStatus = "pending";
+    if (SAP_SEGMENTS.length && completedSegments === SAP_SEGMENTS.length) {
+      integrationStatus = "complete";
+    } else if (hasSegmentActivity || segments.length) {
+      integrationStatus = hasSegmentError ? "in_progress" : "in_progress";
+    }
+
+    const integrationMissing: string[] = [];
+    if (integrationStatus !== "complete") {
+      integrationMissing.push(hasSegmentError ? "Reprocessar integração SAP" : "Integração SAP pendente");
+    }
+
+    steps.push({
+      id: "integrations",
+      label: "Integrações",
+      status: integrationStatus,
+      completedItems: completedSegments,
+      totalItems: SAP_SEGMENTS.length,
+      missing: integrationMissing
+    });
+
+    let approvalsStatus: PartnerRegistrationStepStatus = "pending";
+    if (partner.status === "rejeitado") {
+      approvalsStatus = "blocked";
+    } else if (
+      partner.approvalStage === "finalizado" ||
+      partner.status === "aprovado" ||
+      partner.status === "integrado"
+    ) {
+      approvalsStatus = "complete";
+    } else if (partner.status === "em_validacao") {
+      approvalsStatus = "in_progress";
+    }
+
+    steps.push({
+      id: "approvals",
+      label: "Fluxo de aprovação",
+      status: approvalsStatus,
+      completedItems: approvalsStatus === "complete" ? 1 : 0,
+      totalItems: 1,
+      missing:
+        approvalsStatus === "complete"
+          ? []
+          : approvalsStatus === "blocked"
+            ? ["Fluxo rejeitado - reenviar para validação"]
+            : ["Aprovação pendente"]
+    });
+
+    const completedSteps = steps.filter((step) => step.status === "complete").length;
+    const totalSteps = steps.length;
+
+    let overallStatus: PartnerRegistrationProgress["overallStatus"] = "pending";
+    if (steps.some((step) => step.status === "blocked")) {
+      overallStatus = "blocked";
+    } else if (totalSteps > 0 && completedSteps === totalSteps) {
+      overallStatus = "complete";
+    } else if (steps.some((step) => step.status === "in_progress") || completedSteps > 0) {
+      overallStatus = "in_progress";
+    }
+
+    const completionPercentage = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
+
+    return {
+      steps,
+      completedSteps,
+      totalSteps,
+      completionPercentage,
+      overallStatus
+    };
+  }
+
   private async runSapIntegration(
     partner: Partner,
     segments?: SapIntegrationSegment[],
@@ -392,7 +639,9 @@ export class PartnersService {
       take: 20
     });
 
-    return { partner, changeRequests, auditLogs };
+    const registrationProgress = this.calculateRegistrationProgress(partner);
+
+    return { partner, changeRequests, auditLogs, registrationProgress };
   }
 
   async createChangeRequest(partnerId: string, dto: CreateChangeRequestDto) {

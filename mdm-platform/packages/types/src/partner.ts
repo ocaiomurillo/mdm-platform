@@ -116,3 +116,33 @@ export type PartnerApprovalAction = z.infer<typeof PartnerApprovalActionSchema>;
 export type SapIntegrationSegment = z.infer<typeof SapIntegrationSegmentSchema>;
 export type SapIntegrationStatus = z.infer<typeof SapIntegrationStatusSchema>;
 export type SapIntegrationSegmentState = z.infer<typeof SapIntegrationSegmentStateSchema>;
+
+export type PartnerRegistrationStepId =
+  | "basicData"
+  | "documents"
+  | "contacts"
+  | "addresses"
+  | "banks"
+  | "integrations"
+  | "approvals";
+
+export type PartnerRegistrationStepStatus = "pending" | "in_progress" | "complete" | "blocked";
+
+export type PartnerRegistrationStep = {
+  id: PartnerRegistrationStepId;
+  label: string;
+  status: PartnerRegistrationStepStatus;
+  completedItems: number;
+  totalItems: number;
+  missing?: string[];
+};
+
+export type PartnerRegistrationOverallStatus = "pending" | "in_progress" | "complete" | "blocked";
+
+export type PartnerRegistrationProgress = {
+  steps: PartnerRegistrationStep[];
+  completedSteps: number;
+  totalSteps: number;
+  completionPercentage: number;
+  overallStatus: PartnerRegistrationOverallStatus;
+};
