@@ -1,6 +1,6 @@
 # mdm-platform
 
-Plataforma de **GestÃ£o de Dados Mestres (MDM)** focada em Parceiros de NegÃ³cio (cliente/fornecedor).
+Plataforma de **Gestão de Dados Mestres (MDM)** focada em Parceiros de Negócio (cliente/fornecedor).
 Monorepo com **Next.js (web)** + **NestJS (api)** + **PostgreSQL** + **Docker compose**.
 
 ## Pastas
@@ -8,13 +8,55 @@ Monorepo com **Next.js (web)** + **NestJS (api)** + **PostgreSQL** + **Docker co
 - apps/api: Backend (NestJS + TypeORM + Swagger)
 - packages/ui, utils, types: libs compartilhadas
 - infra/docker: compose + Dockerfiles
-- docs: anotaÃ§Ãµes de arquitetura e contratos
+- docs: anotações de arquitetura e contratos
 
-## Dev quickstart
-1. `pnpm i` (ou npm/yarn) na raiz
-2. `docker compose -f infra/docker/docker-compose.dev.yml up -d db pgadmin`
-3. `pnpm --filter @mdm/api run migration:run`
-4. `pnpm dev` (roda web e api via turbo)
+## Como rodar localmente
+
+### Pré-requisitos
+- **Node.js 18+** (habilite o Corepack para usar a versão de PNPM do projeto).
+- **PNPM 9** (`corepack enable` ou instalação manual).
+- **Docker + Docker Compose** para subir PostgreSQL e pgAdmin.
+
+### Passo a passo
+1. **Clonar o repositório**
+   ```bash
+   git clone <URL-do-repo>
+   cd mdm-platform
+   ```
+2. **Instalar dependências**
+   ```bash
+   corepack enable
+   pnpm install
+   ```
+3. **Configurar variáveis de ambiente**
+   ```bash
+   cp apps/api/.env.example apps/api/.env.local
+   cp apps/web/.env.example apps/web/.env.local
+   ```
+   - Ajuste `DATABASE_URL` para apontar ao PostgreSQL local (ex.: `postgres://mdm:mdm@localhost:5432/mdm`).
+   - Defina `JWT_SECRET`, credenciais do Turnstile (`NEXT_PUBLIC_TURNSTILE_SITE_KEY`) e variáveis SAP conforme necessidade.
+4. **Subir banco de dados e pgAdmin**
+   ```bash
+   pnpm db:up
+   ```
+   (equivale a `docker compose -f infra/docker/docker-compose.dev.yml up -d db pgadmin`)
+5. **Executar migrações TypeORM**
+   ```bash
+   pnpm --filter @mdm/api run migration:run
+   ```
+6. **(Opcional) Popular perfis/usuários padrão**
+   ```bash
+   pnpm --filter @mdm/api run seed:profiles
+   ```
+7. **Iniciar frontend e backend em modo dev**
+   ```bash
+   pnpm dev
+   ```
+
+### URLs úteis
+- Web app: http://localhost:3000
+- API + Swagger: http://localhost:3001/docs
+- pgAdmin: http://localhost:5050 (login padrão `admin@example.com` / `admin`)
 
 - Configure o SAP com `SAP_BASE_URL`, `SAP_USER`, `SAP_PASSWORD`, `SAP_REQUEST_TIMEOUT` (opcional, em ms).
 
