@@ -1,10 +1,10 @@
 ﻿"use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
-import { Turnstile } from "@marsidev/react-turnstile";
+import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
 import { useRouter } from "next/navigation";
 import { storeUser } from "../../../lib/auth";
 
@@ -21,6 +21,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  const turnstileRef = useRef<TurnstileInstance | null>(null);
 
   const { register, handleSubmit, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema)
@@ -52,6 +53,7 @@ export default function LoginPage() {
     } catch (err: any) {
       const message = err?.response?.data?.message;
       setError(typeof message === "string" ? message : "Não foi possível autenticar.");
+      turnstileRef.current?.reset();
       setTurnstileToken(null);
       storeUser(null);
     } finally {
@@ -84,10 +86,17 @@ export default function LoginPage() {
           </div>
           {siteKey ? (
             <Turnstile
+              ref={turnstileRef}
               siteKey={siteKey}
               onSuccess={setTurnstileToken}
-              onExpire={() => setTurnstileToken(null)}
-              onError={() => setTurnstileToken(null)}
+              onExpire={() => {
+                turnstileRef.current?.reset();
+                setTurnstileToken(null);
+              }}
+              onError={() => {
+                turnstileRef.current?.reset();
+                setTurnstileToken(null);
+              }}
               className="flex justify-center"
             />
           ) : (
