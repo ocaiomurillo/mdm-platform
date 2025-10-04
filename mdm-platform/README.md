@@ -35,6 +35,7 @@ Monorepo com **Next.js (web)** + **NestJS (api)** + **PostgreSQL** + **Docker co
    ```
    - Ajuste `DATABASE_URL` para apontar ao PostgreSQL local (ex.: `postgres://mdm:mdm@localhost:5432/mdm`).
    - Defina `JWT_SECRET`, credenciais do Turnstile (`NEXT_PUBLIC_TURNSTILE_SITE_KEY`) e variáveis SAP conforme necessidade.
+   - Informe `CNPJ_OPEN_API_TOKEN` em `apps/api/.env.local` com o token emitido pela CNPJa para habilitar as consultas externas.
 4. **Subir banco de dados e pgAdmin**
    ```bash
    pnpm db:up
