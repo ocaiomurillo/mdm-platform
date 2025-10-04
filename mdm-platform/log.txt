@@ -1,5 +1,0 @@
-
-> mdm-monorepo@ dev C:\Users\ocaio\OneDrive\Documentos\git\mdm-platform\mdm-platform
-> turbo run dev
-
- ELIFECYCLE  Command failed with exit code 1.
