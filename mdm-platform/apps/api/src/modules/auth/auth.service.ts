@@ -1,4 +1,4 @@
-﻿import { Injectable, ForbiddenException, UnauthorizedException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, ForbiddenException, UnauthorizedException, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { Repository } from 'typeorm';
@@ -51,19 +51,40 @@ export class AuthService {
     if (!secret) {
       throw new InternalServerErrorException('Turnstile não configurado');
     }
+    const payload = new URLSearchParams({ secret, response: token });
     const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret, response: token }),
+      body: payload,
     });
 
-    if (!response.ok) {
-      throw new ForbiddenException('Falha na verificação anti-robô');
-    }
-
-    const result = await response.json();
-    if (!result.success) {
-      throw new ForbiddenException('Falha na verificação anti-robô');
+    const result = await this.parseTurnstileResponse(response);
+    if (!response.ok || !result.success) {
+      const errors = result['error-codes'] ?? [];
+      const errorMessage = errors.length
+        ? `Falha na verificação anti-robô (${errors.join(', ')})`
+        : 'Falha na verificação anti-robô';
+      throw new ForbiddenException(errorMessage);
     }
   }
+
+  private async parseTurnstileResponse(response: Response): Promise<TurnstileVerifyResponse> {
+    try {
+      const json = await response.json();
+      if (typeof json === 'object' && json !== null) {
+        const data = json as Record<string, unknown>;
+        const success = data.success === true;
+        const rawErrors = Array.isArray(data['error-codes']) ? data['error-codes'] : [];
+        const errors = rawErrors.filter((code): code is string => typeof code === 'string' && code.length > 0);
+        return { success, 'error-codes': errors.length ? errors : undefined };
+      }
+    } catch (error) {
+      // ignore JSON parsing errors; handled by caller as unsuccessful validation
+    }
+    return { success: false };
+  }
 }
+
+type TurnstileVerifyResponse = {
+  success: boolean;
+  'error-codes'?: string[];
+};
