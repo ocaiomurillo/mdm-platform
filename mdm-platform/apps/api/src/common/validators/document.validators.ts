@@ -86,14 +86,10 @@ export const IsStateRegistration = (options?: StateRegistrationOptions) => {
           const message = options?.message;
 
           if (typeof message === "function") {
-            return message(args);
+            return String(message(args));
           }
 
-          if (message !== undefined && message !== null) {
-            return String(message);
-          }
-
-          return "Inscrição estadual inválida";
+          return String(message ?? "Inscrição estadual inválida");
         }
       }
     });
