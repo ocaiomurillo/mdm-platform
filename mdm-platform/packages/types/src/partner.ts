@@ -33,8 +33,7 @@ export const PartnerApprovalHistoryEntrySchema = z.object({
 });
 
 export const AddressSchema = z.object({
-  tipo: z.enum(["fiscal", "cobranca", "entrega"]).
-    default("fiscal"),
+  tipo: z.enum(["fiscal", "cobranca", "entrega"]).default("fiscal"),
   cep: z.string(),
   logradouro: z.string(),
   numero: z.string(),
