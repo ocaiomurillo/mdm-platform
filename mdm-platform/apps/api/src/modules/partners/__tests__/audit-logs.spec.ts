@@ -7,6 +7,7 @@ vi.mock("../entities/partner.entity", () => ({ Partner: class {} }));
 vi.mock("../entities/partner-change-request.entity", () => ({ PartnerChangeRequest: class {} }));
 vi.mock("../entities/partner-audit-job.entity", () => ({ PartnerAuditJob: class {} }));
 vi.mock("../entities/partner-audit-log.entity", () => ({ PartnerAuditLog: class {} }));
+vi.mock("../entities/partner-note.entity", () => ({ PartnerNote: class {} }));
 
 describe("PartnersService audit processing", () => {
   const repo = {
