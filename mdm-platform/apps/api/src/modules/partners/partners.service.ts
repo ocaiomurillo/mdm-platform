@@ -1243,13 +1243,13 @@ export class PartnersService {
   }
 
   private async fetchFromCnpja(cnpj: string) {
-    const baseUrl = process.env.CNPJ_OPEN_API_URL || "https://cnpja.com/api";
+    const baseUrl = process.env.CNPJ_OPEN_API_URL || "https://api.cnpja.com";
     const token = process.env.CNPJ_OPEN_API_TOKEN;
     const headers: Record<string, string> = { Accept: "application/json" };
     if (token) {
       headers.Authorization = `Bearer ${token}`;
     }
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/cnpj/${cnpj}`, { headers });
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/office/${cnpj}`, { headers });
     if (!response.ok) {
       throw new Error(`cnpja responded with status ${response.status}`);
     }
