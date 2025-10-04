@@ -2,7 +2,9 @@
   "name": "@mdm/api",
   "private": true,
   "scripts": {
+    "predev": "pnpm --filter @mdm/types build",
     "dev": "nest start --watch",
+    "prebuild": "pnpm --filter @mdm/types build",
     "build": "nest build",
     "start:prod": "node dist/main.js",
     "migration:run": "ts-node --project tsconfig.json ./node_modules/typeorm/cli.js migration:run -d src/database/ormconfig.ts",

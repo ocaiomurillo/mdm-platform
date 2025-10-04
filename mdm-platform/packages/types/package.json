@@ -2,8 +2,12 @@
   "name": "@mdm/types",
   "version": "0.0.1",
   "private": true,
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "dev": "tsc --project tsconfig.json --watch --preserveWatchOutput"
+  },
   "dependencies": {
     "zod": "^3.23.8"
   }

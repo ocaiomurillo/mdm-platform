@@ -9,12 +9,16 @@
     "target": "ES2020",
     "sourceMap": true,
     "outDir": "./dist",
+    "rootDir": "./src",
     "baseUrl": "./",
     "moduleResolution": "Node16",
     "types": ["node"],
     "paths": {
       "@mdm/types": [
-        "../../packages/types/src"
+        "../../packages/types/dist/index"
+      ],
+      "@mdm/types/*": [
+        "../../packages/types/dist/*"
       ]
     }
   },
