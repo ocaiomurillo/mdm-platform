@@ -1,9 +1,12 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ForbiddenException,
+  HttpException,
   Injectable,
   InternalServerErrorException,
-  NotFoundException
+  NotFoundException,
+  UnauthorizedException
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { randomUUID } from "crypto";
@@ -937,6 +940,9 @@ export class PartnersService {
       const payload = await this.fetchFromCnpja(cnpj);
       return this.normalizeCnpjPayload(payload);
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
       throw new InternalServerErrorException("Nao foi possivel obter dados do CNPJ informado");
     }
   }
@@ -1256,7 +1262,13 @@ export class PartnersService {
     };
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/office/${cnpj}`, { headers });
     if (!response.ok) {
-      throw new Error(`cnpja responded with status ${response.status}`);
+      if (response.status === 401 || response.status === 403) {
+        throw new UnauthorizedException("CNPJ Open API rejeitou a autenticacao");
+      }
+      if (response.status === 404) {
+        throw new NotFoundException("CNPJ nao encontrado na base externa");
+      }
+      throw new BadGatewayException(`cnpja responded with status ${response.status}`);
     }
     return response.json();
   }

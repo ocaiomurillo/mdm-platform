@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { CreatePartnerDto } from "../dto/create-partner.dto";
 import { PartnersService } from "../partners.service";
 
@@ -163,5 +163,19 @@ describe("PartnersService lookup", () => {
     const result = await service.lookupCnpj("45.723.174/0001-10");
     expect(result.documento).toBe("45723174000110");
     expect(spy).toHaveBeenCalled();
+  });
+
+  it("propagates unauthorized errors from CNPJa", async () => {
+    repo.findOne.mockResolvedValueOnce(null);
+    vi.spyOn(service as any, "fetchFromCnpja").mockRejectedValueOnce(new UnauthorizedException());
+
+    await expect(service.lookupCnpj("45.723.174/0001-10")).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("propagates not found errors from CNPJa", async () => {
+    repo.findOne.mockResolvedValueOnce(null);
+    vi.spyOn(service as any, "fetchFromCnpja").mockRejectedValueOnce(new NotFoundException());
+
+    await expect(service.lookupCnpj("45.723.174/0001-10")).rejects.toBeInstanceOf(NotFoundException);
   });
 });
