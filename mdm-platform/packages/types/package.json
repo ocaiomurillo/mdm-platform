@@ -5,10 +5,15 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc --project tsconfig.json",
-    "dev": "tsc --project tsconfig.json --watch --preserveWatchOutput"
+    "dev": "tsc -p tsconfig.json -w --pretty false",
+    "build": "tsc -p tsconfig.json",
+    "clean": "rimraf dist *.tsbuildinfo"
   },
   "dependencies": {
     "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.8",
+    "typescript": "^5.9.3"
   }
 }

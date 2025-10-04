@@ -163,10 +163,24 @@ importers:
       zod:
         specifier: ^3.23.8
         version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^20.12.8
+        version: 20.19.17
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/ui: {}
 
-  packages/utils: {}
+  packages/utils:
+    devDependencies:
+      '@types/node':
+        specifier: ^20
+        version: 20.19.17
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
 
 packages:
 
@@ -2679,6 +2693,11 @@ packages:
 
   typescript@5.9.2:
     resolution: {integrity: sha512-CWBzXQrc/qOkhidw1OzBTQuYRbfyxDXJMVJ1XNwUHGROVmuaeiEm3OslpZ1RV96d7SKKjZKrSJu3+t/xlw3R9A==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -5331,6 +5350,8 @@ snapshots:
   typescript@5.7.2: {}
 
   typescript@5.9.2: {}
+
+  typescript@5.9.3: {}
 
   uid@2.0.2:
     dependencies:
