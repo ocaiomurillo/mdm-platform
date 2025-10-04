@@ -21,6 +21,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
   const turnstileRef = useRef<TurnstileInstance | null>(null);
 
   const { register, handleSubmit, formState: { errors } } = useForm<FormValues>({
@@ -37,10 +38,15 @@ export default function LoginPage() {
       return;
     }
 
+    if (!apiUrl) {
+      setError("Configure o NEXT_PUBLIC_API_URL para apontar para a API antes de continuar.");
+      return;
+    }
+
     setError(null);
     setIsSubmitting(true);
     try {
-      const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+      const response = await axios.post(`${apiUrl}/auth/login`, {
         email: values.email,
         password: values.password,
         turnstileToken
@@ -50,9 +56,17 @@ export default function LoginPage() {
         storeUser(response.data.user);
       }
       router.push("/dashboard");
-    } catch (err: any) {
-      const message = err?.response?.data?.message;
-      setError(typeof message === "string" ? message : "Não foi possível autenticar.");
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        if (!err.response) {
+          setError("Não foi possível conectar ao servidor. Verifique se a API está em execução e se o NEXT_PUBLIC_API_URL aponta para o endereço correto.");
+        } else {
+          const data = err.response.data as { message?: unknown } | undefined;
+          setError(typeof data?.message === "string" ? data.message : "Não foi possível autenticar.");
+        }
+      } else {
+        setError("Não foi possível autenticar.");
+      }
       turnstileRef.current?.reset();
       setTurnstileToken(null);
       storeUser(null);

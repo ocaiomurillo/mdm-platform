@@ -1,4 +1,5 @@
-﻿import { Module } from "@nestjs/common";
+import { Module } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
 import { ScheduleModule } from "@nestjs/schedule";
 import { TypeOrmModule, TypeOrmModuleOptions } from "@nestjs/typeorm";
 
@@ -19,6 +20,10 @@ const typeOrmConfig: TypeOrmModuleOptions = {
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: [".env", ".env.local"]
+    }),
     ScheduleModule.forRoot(),
     TypeOrmModule.forRoot(typeOrmConfig),
     PartnersModule,
