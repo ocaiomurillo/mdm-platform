@@ -11,6 +11,7 @@
     "outDir": "./dist",
     "baseUrl": "./",
     "moduleResolution": "Node16",
+    "types": ["node"],
     "paths": {
       "@mdm/types": [
         "../../packages/types/src"
@@ -19,5 +20,11 @@
   },
   "include": [
     "src/**/*"
+  ],
+  "exclude": [
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx"
   ]
 }

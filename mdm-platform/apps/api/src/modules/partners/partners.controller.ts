@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { AuthGuard } from "@nestjs/passport";
-import { Request } from "express";
 import { CreatePartnerDto } from "./dto/create-partner.dto";
 import { ChangeRequestListQueryDto, CreateBulkChangeRequestDto, CreateChangeRequestDto } from "./dto/change-request.dto";
 import { AuthenticatedUser, PartnersService } from "./partners.service";
@@ -21,7 +20,7 @@ class StageDecisionDto {
   motivo?: string;
 }
 
-type AuthenticatedRequest = Request & { user: AuthenticatedUser };
+type AuthenticatedRequest = { user: AuthenticatedUser };
 
 @ApiTags("partners")
 @ApiBearerAuth()
