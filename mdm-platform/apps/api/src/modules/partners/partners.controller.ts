@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { AuthGuard } from "@nestjs/passport";
 import { CreatePartnerDto } from "./dto/create-partner.dto";
@@ -6,6 +6,7 @@ import { ChangeRequestListQueryDto, CreateBulkChangeRequestDto, CreateChangeRequ
 import { AuthenticatedUser, PartnersService } from "./partners.service";
 import { SAP_INTEGRATION_SEGMENTS } from "./sap-integration.service";
 import { CreatePartnerNoteDto } from "./dto/partner-note.dto";
+import { CreatePartnerDraftDto, UpdatePartnerDraftDto } from "./dto/partner-draft.dto";
 
 class AuditRequestDto {
   partnerIds!: string[];
@@ -28,6 +29,26 @@ type AuthenticatedRequest = { user: AuthenticatedUser };
 @Controller("partners")
 export class PartnersController {
   constructor(private readonly svc: PartnersService) {}
+
+  @Post("drafts")
+  createDraft(@Body() dto: CreatePartnerDraftDto, @Req() req: AuthenticatedRequest) {
+    return this.svc.createDraft(dto, req.user);
+  }
+
+  @Get("drafts")
+  listDrafts(@Req() req: AuthenticatedRequest) {
+    return this.svc.listDrafts(req.user);
+  }
+
+  @Patch("drafts/:id")
+  updateDraft(@Param("id") id: string, @Body() dto: UpdatePartnerDraftDto, @Req() req: AuthenticatedRequest) {
+    return this.svc.updateDraft(id, dto, req.user);
+  }
+
+  @Delete("drafts/:id")
+  deleteDraft(@Param("id") id: string, @Req() req: AuthenticatedRequest) {
+    return this.svc.deleteDraft(id, req.user);
+  }
 
   @Post()
   create(@Body() dto: CreatePartnerDto) {
