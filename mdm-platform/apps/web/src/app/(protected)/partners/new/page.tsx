@@ -1040,7 +1040,7 @@ export default function NewPartner() {
                 <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone</label>
                 <input {...register("telefone")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 0000-0000" />
               </div>
-              <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <div className="mt-4 grid gap-4 md:grid-cols-3 md:mt-0">
                 <div>
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone do responsável</label>
                   <input {...register("contato_fone")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 0000-0000" />
@@ -1054,7 +1054,7 @@ export default function NewPartner() {
                   <input {...register("celular")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 00000-0000" />
                 </div>
               </div>
-              <div className="mt-6">
+              <div className="mt-6 md:col-span-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Emails</span>
                   <button
@@ -1098,7 +1098,8 @@ export default function NewPartner() {
                   ))}
                 </div>
               </div>
-            </section>
+            </div>
+          </section>
 
             <section id="financeiro" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between">
