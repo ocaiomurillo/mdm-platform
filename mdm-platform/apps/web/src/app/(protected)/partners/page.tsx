@@ -262,7 +262,7 @@ export default function PartnersList() {
     router.push(`/partners/${partner.id}`);
   };
 
-  const handleEditPartner = (partner: any, event: MouseEvent<HTMLButtonElement>) => {
+  const handleChangeRequest = (partner: any, event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     closeMenu(event);
     router.push(`/partners/change-request?partner=${partner.id}`);
@@ -548,10 +548,10 @@ export default function PartnersList() {
                           </button>
                           <button
                             type="button"
-                            onClick={(event) => handleEditPartner(partner, event)}
+                            onClick={(event) => handleChangeRequest(partner, event)}
                             className="block w-full px-3 py-2 text-left text-zinc-700 transition-colors hover:bg-zinc-50"
                           >
-                            Editar
+                            Solicitar alteração
                           </button>
                           <button
                             type="button"
