@@ -35,6 +35,11 @@ export function NewEntityMenu({ className }: NewEntityMenuProps) {
         label: "Nova auditoria",
         description: "Disparar fluxo de auditoria de parceiros",
         href: "/audit"
+      },
+      {
+        label: "Nova integração",
+        description: "Forçar reenvio de dados ao SAP",
+        href: "/integrations"
       }
     ],
     []

@@ -1,7 +1,7 @@
 ﻿"use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, Users, LogOut, Bell, UserCog, Clock3, ShieldCheck, FileDiff } from "lucide-react";
+import { Home, Users, LogOut, Bell, UserCog, Clock3, ShieldCheck, FileDiff, Share2 } from "lucide-react";
 import { PropsWithChildren, useEffect, useMemo, useState } from "react";
 import { jwtDecode } from "jwt-decode";
 import { getStoredUser, storeUser, StoredUser } from "../../lib/auth";
@@ -18,6 +18,7 @@ type TokenPayload = {
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
   { href: "/partners", label: "Parceiros", icon: Users },
+  { href: "/integrations", label: "Integrações", icon: Share2 },
   { href: "/change-requests", label: "Solicitações", icon: FileDiff },
   { href: "/notifications", label: "Notificações", icon: Bell },
   { href: "/audit", label: "Auditorias", icon: ShieldCheck },
