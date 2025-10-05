@@ -1,6 +1,6 @@
 ﻿"use client";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   useForm,
   useFieldArray,
@@ -161,9 +161,6 @@ const natureMatches = (natureza: string, targets: Array<'cliente' | 'fornecedor'
   return targets.some((target) => natureza === target || natureza === 'ambos');
 };
 
-const readOnlyAddressInputClass =
-  "w-full rounded-lg border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm text-zinc-600";
-
 export default function NewPartner() {
   const router = useRouter();
   const [docLoading, setDocLoading] = useState(false);
@@ -178,7 +175,7 @@ export default function NewPartner() {
     handleSubmit,
     setValue,
     watch,
-    formState: { errors, isSubmitting }
+    formState: { errors, isSubmitting, dirtyFields }
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -417,6 +414,87 @@ export default function NewPartner() {
     }
   };
 
+  type AddressField =
+    | "cep"
+    | "logradouro"
+    | "numero"
+    | "complemento"
+    | "bairro"
+    | "municipio"
+    | "municipio_ibge"
+    | "uf";
+
+  const isAddressFieldDirty = (field: AddressField) => {
+    const dirtyMap = dirtyFields as Record<string, unknown> | undefined;
+    const state = dirtyMap?.[field];
+    if (typeof state === "boolean") {
+      return state;
+    }
+    return Boolean(state);
+  };
+
+  const setAddressFieldValue = (
+    field: AddressField,
+    rawValue: unknown,
+    options: {
+      uppercase?: boolean;
+      allowEmpty?: boolean;
+      force?: boolean;
+      shouldDirty?: boolean;
+      transform?: (value: string) => string;
+    } = {}
+  ) => {
+    const { uppercase = true, allowEmpty = false, force = false, shouldDirty = false, transform } = options;
+
+    if (rawValue === undefined || rawValue === null) {
+      return;
+    }
+
+    let value = typeof rawValue === "string" ? rawValue : String(rawValue);
+    const trimmed = value.trim();
+
+    if (!allowEmpty && !trimmed) {
+      return;
+    }
+
+    value = trimmed;
+
+    if (transform) {
+      value = transform(value);
+    }
+
+    if (uppercase) {
+      value = value.toUpperCase();
+    }
+
+    if (!force && isAddressFieldDirty(field)) {
+      return;
+    }
+
+    setValue(field as FieldPath<FormValues>, value as any, {
+      shouldValidate: true,
+      shouldDirty
+    });
+  };
+
+  const applyAddressData = (
+    address: Partial<Record<AddressField, unknown>> | null | undefined,
+    options: { forceCep?: boolean; markCepDirty?: boolean } = {}
+  ) => {
+    if (!address) return;
+
+    const { forceCep = false, markCepDirty = false } = options;
+
+    setAddressFieldValue("cep", address.cep, { uppercase: false, force: forceCep, shouldDirty: markCepDirty });
+    setAddressFieldValue("logradouro", address.logradouro);
+    setAddressFieldValue("numero", address.numero, { uppercase: false });
+    setAddressFieldValue("complemento", address.complemento);
+    setAddressFieldValue("bairro", address.bairro);
+    setAddressFieldValue("municipio", address.municipio);
+    setAddressFieldValue("municipio_ibge", address.municipio_ibge, { uppercase: false });
+    setAddressFieldValue("uf", address.uf, { transform: (value) => value.slice(0, 2) });
+  };
+
   const applyLookupData = (data: LookupResult) => {
     if (!data) return;
     if (data.nome) {
@@ -443,33 +521,7 @@ export default function NewPartner() {
     if (data.inscricao_estadual) {
       setFieldIfEmpty("ie", data.inscricao_estadual);
     }
-    if (data.endereco) {
-      const { cep, logradouro, numero, complemento, bairro, municipio, municipio_ibge, uf } = data.endereco;
-      if (typeof cep === "string") {
-        setValue("cep", cep, { shouldValidate: true });
-      }
-      if (typeof logradouro === "string") {
-        setValue("logradouro", logradouro.toUpperCase(), { shouldValidate: true });
-      }
-      if (numero !== undefined && numero !== null) {
-        setValue("numero", `${numero}`, { shouldValidate: true });
-      }
-      if (typeof complemento === "string") {
-        setValue("complemento", complemento.toUpperCase());
-      }
-      if (typeof bairro === "string") {
-        setValue("bairro", bairro.toUpperCase(), { shouldValidate: true });
-      }
-      if (typeof municipio === "string") {
-        setValue("municipio", municipio.toUpperCase(), { shouldValidate: true });
-      }
-      if (municipio_ibge !== undefined && municipio_ibge !== null) {
-        setValue("municipio_ibge", `${municipio_ibge}`);
-      }
-      if (typeof uf === "string") {
-        setValue("uf", uf.toUpperCase().slice(0, 2), { shouldValidate: true });
-      }
-    }
+    applyAddressData(data.endereco);
   };
 
   const handleLookupDocumento = async () => {
@@ -514,12 +566,16 @@ export default function NewPartner() {
     const rawCep = watch("cep") || "";
     const digits = onlyDigits(rawCep);
 
+    setCepError(null);
+
+    if (digits.length === 0) {
+      return;
+    }
+
     if (digits.length !== 8) {
       setCepError("CEP inválido.");
       return;
     }
-
-    setCepError(null);
     setCepLoading(true);
 
     try {
@@ -531,18 +587,16 @@ export default function NewPartner() {
         return;
       }
 
-      const street = data.street?.trim();
-      const neighborhood = data.neighborhood?.trim();
-      const city = data.city?.trim();
-      const state = data.state?.trim();
-      const cityIbge = data.city_ibge ? `${data.city_ibge}` : undefined;
+      const normalizedAddress = {
+        cep: data.cep,
+        logradouro: data.street,
+        bairro: data.neighborhood,
+        municipio: data.city,
+        municipio_ibge: data.city_ibge ? `${data.city_ibge}` : undefined,
+        uf: data.state
+      } satisfies Partial<Record<AddressField, unknown>>;
 
-      setValue("cep", data.cep, { shouldValidate: true });
-      if (street) setValue("logradouro", street.toUpperCase(), { shouldValidate: true });
-      if (neighborhood) setValue("bairro", neighborhood.toUpperCase(), { shouldValidate: true });
-      if (city) setValue("municipio", city.toUpperCase(), { shouldValidate: true });
-      setValue("municipio_ibge", cityIbge, { shouldValidate: true });
-      if (state) setValue("uf", state.toUpperCase().slice(0, 2), { shouldValidate: true });
+      applyAddressData(normalizedAddress, { forceCep: true, markCepDirty: true });
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         setCepError("CEP inválido.");
@@ -864,13 +918,14 @@ export default function NewPartner() {
             <section id="endereco" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Endereço</h2>
               <div className="mt-4 grid gap-4 md:grid-cols-6">
-                <div className="md:col-span-2">
+                <div className="md:col-span-3">
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">CEP</label>
                   <div className="flex gap-2">
                     <input
                       {...register("cep")}
-                      className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                      onBlur={handleLookupCep}
                       placeholder="00000-000"
+                      className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                     />
                     <button
                       type="button"
@@ -884,161 +939,68 @@ export default function NewPartner() {
                   {renderError("cep")}
                   {cepError && <p className="mt-1 text-sm text-red-600">{cepError}</p>}
                 </div>
-                <div className="md:col-span-4">
+                <div className="md:col-span-3">
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Logradouro</label>
                   <input
                     {...register("logradouro")}
-                    readOnly
-                    aria-readonly="true"
-                    className={readOnlyAddressInputClass}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                     placeholder="Rua, avenida..."
                   />
                   {renderError("logradouro")}
                 </div>
               </div>
-              <div className="mt-4 grid gap-4 md:grid-cols-4">
-                <div>
+              <div className="mt-4 grid gap-4 md:grid-cols-6">
+                <div className="md:col-span-2">
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Número</label>
-                  <input {...register("numero")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Nº" />
+                  <input
+                    {...register("numero")}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="000"
+                  />
                   {renderError("numero")}
                 </div>
-                <div>
+                <div className="md:col-span-2">
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Complemento</label>
-                  <input {...register("complemento")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
+                  <input
+                    {...register("complemento")}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="Apartamento, sala..."
+                  />
                 </div>
-                <div>
+                <div className="md:col-span-2">
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Bairro</label>
                   <input
                     {...register("bairro")}
-                    readOnly
-                    aria-readonly="true"
-                    className={readOnlyAddressInputClass}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="Bairro"
                   />
                   {renderError("bairro")}
                 </div>
-                <div>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-6">
+                <div className="md:col-span-3">
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Município</label>
+                  <input
+                    {...register("municipio")}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="Cidade"
+                  />
+                  {renderError("municipio")}
+                </div>
+                <div className="md:col-span-2">
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">UF</label>
                   <input
                     {...register("uf")}
-                    readOnly
-                    aria-readonly="true"
-                    className={`${readOnlyAddressInputClass} uppercase`}
+                    maxLength={2}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm uppercase"
                     placeholder="UF"
                   />
                   {renderError("uf")}
                 </div>
               </div>
-              <div className="mt-4 grid gap-4 md:grid-cols-3">
-                <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Município</label>
-                  <input
-                    {...register("municipio")}
-                    readOnly
-                    aria-readonly="true"
-                    className={readOnlyAddressInputClass}
-                  />
-                  {renderError("municipio")}
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Código IBGE</label>
-                  <input
-                    {...register("municipio_ibge")}
-                    readOnly
-                    aria-readonly="true"
-                    className={readOnlyAddressInputClass}
-                    placeholder="Opcional"
-                  />
-                  {renderError("municipio_ibge")}
-                </div>
-              </div>
+              <input type="hidden" {...register("municipio_ibge")} />
+              {renderError("municipio_ibge")}
             </section>
-
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Endereço fiscal</h2>
-            <div className="mt-4 grid gap-4 md:grid-cols-6">
-              <div className="md:col-span-3">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">CEP</label>
-                <div className="flex gap-2">
-                  <input
-                    {...register("cep")}
-                    onBlur={handleLookupCep}
-                    placeholder="00000-000"
-                    className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleLookupCep}
-                    disabled={cepLoading}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors disabled:cursor-not-allowed disabled:opacity-60 hover:border-zinc-300 hover:bg-zinc-50"
-                  >
-                    {cepLoading ? "Buscando..." : "Buscar CEP"}
-                  </button>
-                </div>
-                {renderError("cep")}
-                {cepError && <p className="mt-1 text-sm text-red-600">{cepError}</p>}
-              </div>
-              <div className="md:col-span-3">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Logradouro</label>
-                <input
-                  {...register("logradouro")}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  placeholder="Rua, avenida..."
-                />
-                {renderError("logradouro")}
-              </div>
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-6">
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Número</label>
-                <input
-                  {...register("numero")}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  placeholder="000"
-                />
-                {renderError("numero")}
-              </div>
-              <div className="md:col-span-4">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Complemento</label>
-                <input
-                  {...register("complemento")}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  placeholder="Apartamento, sala..."
-                />
-              </div>
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-6">
-              <div className="md:col-span-3">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Bairro</label>
-                <input
-                  {...register("bairro")}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  placeholder="Bairro"
-                />
-                {renderError("bairro")}
-              </div>
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Município</label>
-                <input
-                  {...register("municipio")}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  placeholder="Cidade"
-                />
-                {renderError("municipio")}
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">UF</label>
-                <input
-                  {...register("uf")}
-                  maxLength={2}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm uppercase"
-                  placeholder="UF"
-                />
-                {renderError("uf")}
-              </div>
-            </div>
-            <input type="hidden" {...register("municipio_ibge")} />
-            {renderError("municipio_ibge")}
-          </section>
 
           <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
