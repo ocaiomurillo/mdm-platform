@@ -1,6 +1,7 @@
 ﻿"use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from "react";
 import axios from "axios";
+import { Eye, Link2, Loader2, Pencil, StickyNote } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { PartnerApprovalStage } from "@mdm/types";
 import { getStoredUser, StoredUser } from "../../../lib/auth";
@@ -249,28 +250,18 @@ export default function PartnersList() {
 
   const columns = useMemo(() => ALL_COLUMNS.filter((column) => selectedColumns.includes(column.id)), [selectedColumns]);
 
-  const closeMenu = (event: MouseEvent<HTMLButtonElement>) => {
-    const details = event.currentTarget.closest("details");
-    if (details) {
-      (details as HTMLDetailsElement).open = false;
-    }
-  };
-
   const handleViewDetails = (partner: any, event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
-    closeMenu(event);
     router.push(`/partners/${partner.id}`);
   };
 
-  const handleChangeRequest = (partner: any, event: MouseEvent<HTMLButtonElement>) => {
+  const handleEditPartner = (partner: any, event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
-    closeMenu(event);
     router.push(`/partners/change-request?partner=${partner.id}`);
   };
 
   const handleOpenNoteModal = (partner: any, event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
-    closeMenu(event);
     setNoteModal({ partnerId: partner.id, partnerName: partner.nome_legal });
     setNoteContent("");
     setNoteError(null);
@@ -284,7 +275,6 @@ export default function PartnersList() {
 
   const handleLinkAudit = async (partner: any, event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
-    closeMenu(event);
 
     if (!process.env.NEXT_PUBLIC_API_URL) {
       showFeedback({ type: "error", message: "URL da API não configurada." });
@@ -533,43 +523,58 @@ export default function PartnersList() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      <details className="relative">
-                        <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50 [&::-webkit-details-marker]:hidden">
-                          Ações
-                          <span aria-hidden="true">▾</span>
-                        </summary>
-                        <div className="absolute right-0 z-10 mt-1 w-44 overflow-hidden rounded-lg border border-zinc-200 bg-white text-sm shadow-lg">
-                          <button
-                            type="button"
-                            onClick={(event) => handleViewDetails(partner, event)}
-                            className="block w-full px-3 py-2 text-left text-zinc-700 transition-colors hover:bg-zinc-50"
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(event) => handleViewDetails(partner, event)}
+                          className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+                          aria-label="Ver dados do parceiro"
+                          title="Ver dados"
+                        >
+                          <Eye className="h-4 w-4" aria-hidden="true" />
+                          <span className="sr-only">Ver dados</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => handleEditPartner(partner, event)}
+                          className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+                          aria-label="Editar parceiro"
+                          title="Editar"
+                        >
+                          <Pencil className="h-4 w-4" aria-hidden="true" />
+                          <span className="sr-only">Editar</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => handleOpenNoteModal(partner, event)}
+                          className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+                          aria-label="Criar nota"
+                          title="Criar nota"
+                        >
+                          <StickyNote className="h-4 w-4" aria-hidden="true" />
+                          <span className="sr-only">Criar nota</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => handleLinkAudit(partner, event)}
+                          className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:text-zinc-400"
+                          aria-label={actionLoadingPartnerId === partner.id ? "Vinculando auditoria" : "Vincular auditoria"}
+                          title="Vincular auditoria"
+                          disabled={actionLoadingPartnerId === partner.id}
                           >
-                            Ver dados
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => handleChangeRequest(partner, event)}
-                            className="block w-full px-3 py-2 text-left text-zinc-700 transition-colors hover:bg-zinc-50"
-                          >
-                            Solicitar alteração
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => handleOpenNoteModal(partner, event)}
-                            className="block w-full px-3 py-2 text-left text-zinc-700 transition-colors hover:bg-zinc-50"
-                          >
-                            Criar nota
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => handleLinkAudit(partner, event)}
-                            className="block w-full px-3 py-2 text-left text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:text-zinc-400"
-                            disabled={actionLoadingPartnerId === partner.id}
-                          >
-                            {actionLoadingPartnerId === partner.id ? "Vinculando..." : "Vincular auditoria"}
-                          </button>
-                        </div>
-                      </details>
+                          {actionLoadingPartnerId === partner.id ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                              <span className="sr-only">Vinculando auditoria</span>
+                            </>
+                          ) : (
+                            <>
+                              <Link2 className="h-4 w-4" aria-hidden="true" />
+                              <span className="sr-only">Vincular auditoria</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
