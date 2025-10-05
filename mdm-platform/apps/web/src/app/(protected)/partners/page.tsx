@@ -258,7 +258,7 @@ export default function PartnersList() {
 
   const handleEditPartner = (partner: any, event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
-    router.push(`/partners/change-request?partner=${partner.id}`);
+    router.push(`/change-requests?partner=${partner.id}`);
   };
 
   const handleOpenNoteModal = (partner: any, event: MouseEvent<HTMLButtonElement>) => {

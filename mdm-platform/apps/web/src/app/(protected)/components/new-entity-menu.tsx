@@ -29,7 +29,7 @@ export function NewEntityMenu({ className }: NewEntityMenuProps) {
       {
         label: "Nova solicitação de mudança",
         description: "Criar alteração em parceiro existente",
-        href: "/partners/change-request"
+        href: "/change-requests"
       },
       {
         label: "Nova auditoria",
