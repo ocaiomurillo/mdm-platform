@@ -879,7 +879,7 @@ export default function NewPartner() {
     try {
       const token = localStorage.getItem("mdmToken");
       if (!token) {
-        router.replace("/login");
+        setDocError("Sessão expirada. Faça login novamente.");
         return;
       }
       const urlSuffix = tipoPessoa === "PJ" ? `cnpj/${digits}` : `cpf/${digits}`;
