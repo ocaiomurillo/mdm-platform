@@ -7,8 +7,8 @@ import {
   changeRequestFieldDefinitions,
   ChangeRequestFieldId,
   ChangeRequestPayload
-} from "@mdm/types";
-import type { Partner } from "@mdm/types";
+} from "@mdm/types/change-request";
+import type { Partner } from "@mdm/types/partner";
 
 type Mode = "individual" | "massa";
 

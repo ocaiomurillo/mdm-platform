@@ -11,8 +11,8 @@ import type {
   PartnerAuditDifference,
   PartnerRegistrationProgress,
   SapIntegrationSegmentState
-} from "@mdm/types";
-import { ChangeRequestPayload } from "@mdm/types";
+} from "@mdm/types/partner";
+import { ChangeRequestPayload } from "@mdm/types/change-request";
 import PartnerTimeline, { StageStatus } from "./partner-timeline";
 import { mapSapSegments, SAP_SEGMENT_LABELS, SAP_STATUS_LABELS, summarizeSapOverall, shouldAllowSapRetry, SapOverallTone } from "../sap-integration-helpers";
 import { getStoredUser, storeUser, StoredUser } from "../../../../lib/auth";
