@@ -20,7 +20,7 @@ const navItems = [
   { href: "/partners", label: "Parceiros", icon: Users },
   { href: "/change-requests", label: "Solicitações", icon: FileDiff },
   { href: "/notifications", label: "Notificações", icon: Bell },
-  { href: "/audit", label: "Auditoria", icon: ShieldCheck },
+  { href: "/audit", label: "Auditorias", icon: ShieldCheck },
   { href: "/user-maintenance", label: "Usuários", icon: UserCog },
   { href: "/history", label: "Histórico", icon: Clock3 }
 ];

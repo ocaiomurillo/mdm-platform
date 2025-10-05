@@ -34,6 +34,10 @@ type FetchStatusParams = BaseParams & {
   jobId: string;
 };
 
+type AuditJobActionParams = FetchStatusParams & {
+  currentJob?: AuditJob;
+};
+
 const DEFAULT_HEADERS = (token: string) => ({
   Authorization: `Bearer ${token}`
 });
@@ -105,5 +109,33 @@ export async function fetchAuditJobStatus({ apiUrl, token, jobId }: FetchStatusP
     origin: response?.data?.origin ?? "bulk",
     partnerIds: Array.isArray(response?.data?.partnerIds) ? response.data.partnerIds : [],
     requestedBy: response?.data?.requestedBy ?? null
+  });
+}
+
+export async function reprocessAuditJob({ apiUrl, token, jobId, currentJob }: AuditJobActionParams) {
+  const url = `${apiUrl.replace(/\/$/, "")}/partners/audit/${encodeURIComponent(jobId)}/reprocess`;
+  const response = await axios.post(url, {}, { headers: DEFAULT_HEADERS(token) });
+  return normalizeAuditJob(response?.data ?? {}, {
+    jobId,
+    origin: response?.data?.origin ?? currentJob?.origin ?? "bulk",
+    partnerIds: Array.isArray(response?.data?.partnerIds)
+      ? response.data.partnerIds
+      : currentJob?.partnerIds ?? [],
+    requestedBy: response?.data?.requestedBy ?? currentJob?.requestedBy ?? null,
+    status: response?.data?.status ?? currentJob?.status ?? "pending"
+  });
+}
+
+export async function cancelAuditJob({ apiUrl, token, jobId, currentJob }: AuditJobActionParams) {
+  const url = `${apiUrl.replace(/\/$/, "")}/partners/audit/${encodeURIComponent(jobId)}/cancel`;
+  const response = await axios.post(url, {}, { headers: DEFAULT_HEADERS(token) });
+  return normalizeAuditJob(response?.data ?? {}, {
+    jobId,
+    origin: response?.data?.origin ?? currentJob?.origin ?? "bulk",
+    partnerIds: Array.isArray(response?.data?.partnerIds)
+      ? response.data.partnerIds
+      : currentJob?.partnerIds ?? [],
+    requestedBy: response?.data?.requestedBy ?? currentJob?.requestedBy ?? null,
+    status: response?.data?.status ?? currentJob?.status ?? "pending"
   });
 }
