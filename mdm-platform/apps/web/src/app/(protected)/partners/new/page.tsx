@@ -395,14 +395,30 @@ export default function NewPartner() {
     }
     if (data.endereco) {
       const { cep, logradouro, numero, complemento, bairro, municipio, municipio_ibge, uf } = data.endereco;
-      if (cep) setValue("cep", cep, { shouldValidate: true });
-      if (logradouro) setValue("logradouro", logradouro, { shouldValidate: true });
-      if (numero) setValue("numero", `${numero}`, { shouldValidate: true });
-      if (complemento) setValue("complemento", complemento);
-      if (bairro) setValue("bairro", bairro, { shouldValidate: true });
-      if (municipio) setValue("municipio", municipio.toUpperCase(), { shouldValidate: true });
-      if (municipio_ibge) setValue("municipio_ibge", `${municipio_ibge}`);
-      if (uf) setValue("uf", `${uf}`.toUpperCase().slice(0, 2), { shouldValidate: true });
+      if (typeof cep === "string") {
+        setValue("cep", cep, { shouldValidate: true });
+      }
+      if (typeof logradouro === "string") {
+        setValue("logradouro", logradouro.toUpperCase(), { shouldValidate: true });
+      }
+      if (numero !== undefined && numero !== null) {
+        setValue("numero", `${numero}`, { shouldValidate: true });
+      }
+      if (typeof complemento === "string") {
+        setValue("complemento", complemento.toUpperCase());
+      }
+      if (typeof bairro === "string") {
+        setValue("bairro", bairro.toUpperCase(), { shouldValidate: true });
+      }
+      if (typeof municipio === "string") {
+        setValue("municipio", municipio.toUpperCase(), { shouldValidate: true });
+      }
+      if (municipio_ibge !== undefined && municipio_ibge !== null) {
+        setValue("municipio_ibge", `${municipio_ibge}`);
+      }
+      if (typeof uf === "string") {
+        setValue("uf", uf.toUpperCase().slice(0, 2), { shouldValidate: true });
+      }
     }
   };
 
