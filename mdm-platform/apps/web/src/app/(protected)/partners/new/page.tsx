@@ -713,9 +713,9 @@ export default function NewPartner() {
 
         <form
           onSubmit={handleSubmit(onSubmit)}
-          className="grid gap-6 lg:grid-cols-[minmax(0,260px),1fr] lg:items-start"
+          className="grid gap-6 lg:h-[calc(100vh-220px)] lg:grid-cols-[minmax(0,260px),1fr] lg:items-start lg:overflow-hidden"
         >
-          <aside className="lg:sticky lg:top-6">
+          <aside className="lg:self-start">
             <nav
               aria-label="Etapas do cadastro"
               className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm lg:border-none lg:bg-transparent lg:p-0 lg:shadow-none"
@@ -777,7 +777,7 @@ export default function NewPartner() {
             </nav>
           </aside>
 
-          <div className="space-y-6">
+          <div className="space-y-6 lg:h-full lg:overflow-y-auto lg:pr-4">
             <section id="classificacao" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Classificação</h2>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
