@@ -11,8 +11,8 @@ import type {
   PartnerAuditDifference,
   PartnerRegistrationProgress,
   SapIntegrationSegmentState
-} from "@mdm/types";
-import { ChangeRequestPayload } from "@mdm/types";
+} from "@mdm/types/partner";
+import { ChangeRequestPayload } from "@mdm/types/change-request";
 import PartnerTimeline, { StageStatus } from "./partner-timeline";
 import { mapSapSegments, SAP_SEGMENT_LABELS, SAP_STATUS_LABELS, summarizeSapOverall, shouldAllowSapRetry, SapOverallTone } from "../sap-integration-helpers";
 import { getStoredUser, storeUser, StoredUser } from "../../../../lib/auth";
@@ -647,7 +647,7 @@ export default function PartnerDetailsPage() {
             <p className="text-sm text-zinc-500">Documento: {partner.documento}</p>
           </div>
           <Link
-            href={`/partners/change-request?partner=${partnerId}`}
+            href={`/change-requests?partner=${partnerId}`}
             className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
           >
             Solicitar alteração
@@ -936,7 +936,7 @@ export default function PartnerDetailsPage() {
                             <td className="px-4 py-2 text-xs text-zinc-500">{formatDateTime(item.createdAt)}</td>
                             <td className="px-4 py-2 text-xs">
                               <Link
-                                href={`/partners/change-request?partner=${partnerId}`}
+                                href={`/change-requests?partner=${partnerId}`}
                                 className="font-medium text-zinc-600 transition-colors hover:text-zinc-900"
                               >
                                 Revisar no wizard
