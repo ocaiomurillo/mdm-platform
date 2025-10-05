@@ -1,6 +1,6 @@
 ﻿"use client";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -30,12 +30,8 @@ const transportSchema = z.object({
   sap_bp: z.string().min(1, "Informe o código BP")
 });
 
-const schema = z
-  .object({
-  tipo_pessoa: z.enum(["PJ", "PF"]),
+const baseSchema = {
   natureza: z.enum(["cliente", "fornecedor", "ambos"]),
-  documento: z.string().min(1, "Informe o documento"),
-  nome_legal: z.string().min(2, "Informe o nome legal"),
   nome_fantasia: z.string().optional(),
   contato_nome: z.string().min(2, "Informe o responsável"),
   contato_email: z.string().email("Email inválido"),
@@ -82,23 +78,36 @@ const schema = z
     .optional()
     .transform((value) => (value && value.trim().length ? value : undefined)),
   credito_validade: z.string().optional()
-})
-  .superRefine((data, ctx) => {
-    const digits = onlyDigits(data.documento || "");
-    if (data.tipo_pessoa === "PJ") {
-      if (!validateCNPJ(digits)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["documento"], message: "CNPJ inválido" });
-      }
-    } else {
-      if (!validateCPF(digits)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["documento"], message: "CPF inválido" });
-      }
-    }
+};
 
-    if (data.ie && !validateIE(data.ie, { allowIsento: true })) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ie"], message: "Inscrição estadual inválida" });
-    }
-  });
+const createSchema = (tipo: "PJ" | "PF") => {
+  const isPJ = tipo === "PJ";
+  return z
+    .object({
+      ...baseSchema,
+      tipo_pessoa: z.literal(tipo),
+      documento: z.string().min(1, `Informe o ${isPJ ? "CNPJ" : "CPF"}`),
+      nome_legal: z.string().min(2, isPJ ? "Informe a razão social" : "Informe o nome completo")
+    })
+    .superRefine((data, ctx) => {
+      const digits = onlyDigits(data.documento || "");
+      if (isPJ) {
+        if (!validateCNPJ(digits)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["documento"], message: "CNPJ inválido" });
+        }
+      } else {
+        if (!validateCPF(digits)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["documento"], message: "CPF inválido" });
+        }
+      }
+
+      if (data.ie && !validateIE(data.ie, { allowIsento: true })) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ie"], message: "Inscrição estadual inválida" });
+      }
+    });
+};
+
+const schema = z.discriminatedUnion("tipo_pessoa", [createSchema("PJ"), createSchema("PF")]);
 
 type FormValues = z.infer<typeof schema>;
 
@@ -151,6 +160,7 @@ export default function NewPartner() {
 
   const natureza = watch("natureza");
   const tipoPessoa = watch("tipo_pessoa");
+  const isPessoaJuridica = tipoPessoa === "PJ";
 
   const {
     fields: emailFields,
@@ -174,6 +184,14 @@ export default function NewPartner() {
   const requiresFornecedor = useMemo(() => natureMatches(natureza, ['fornecedor']), [natureza]);
   const requiresCliente = useMemo(() => natureMatches(natureza, ['cliente']), [natureza]);
 
+  useEffect(() => {
+    if (tipoPessoa === "PF") {
+      setValue("ie", undefined);
+      setValue("im", undefined);
+      setValue("regime_tributario", undefined);
+    }
+  }, [setValue, tipoPessoa]);
+
   const applyLookupData = (data: LookupResult) => {
     if (!data) return;
     if (data.nome) {
@@ -181,6 +199,9 @@ export default function NewPartner() {
       if (tipoPessoa === "PF") {
         setValue("contato_nome", data.nome, { shouldValidate: true });
       }
+    }
+    if (data.nome_social) {
+      setValue("nome_fantasia", data.nome_social, { shouldValidate: false });
     }
     if (data.email) {
       replaceEmails([{ endereco: data.email, padrao: true }]);
@@ -192,7 +213,7 @@ export default function NewPartner() {
         setValue("contato_fone", data.telefone);
       }
     }
-    if (data.inscricao_estadual) {
+    if (tipoPessoa === "PJ" && data.inscricao_estadual) {
       setValue("ie", data.inscricao_estadual);
     }
     if (data.endereco) {
@@ -253,26 +274,64 @@ export default function NewPartner() {
       return;
     }
 
+    const sanitize = (value?: string | null) => {
+      if (typeof value !== "string") return undefined;
+      const trimmed = value.trim();
+      return trimmed.length ? trimmed : undefined;
+    };
+
+    const documentoLimpo = onlyDigits(values.documento);
+    const nomeFantasia = sanitize(values.nome_fantasia);
+    const inscricaoEstadual = sanitize(values.ie);
+    const inscricaoMunicipal = sanitize(values.im);
+    const regimeTributario = sanitize(values.regime_tributario);
+    const suframa = sanitize(values.suframa);
+    const telefone = sanitize(values.telefone);
+    const celular = sanitize(values.celular);
+    const contatoFone = sanitize(values.contato_fone);
+    const complemento = sanitize(values.complemento);
+    const municipioIbge = sanitize(values.municipio_ibge);
+    const municipioValor = values.municipio.trim();
+    const municipioUpper = municipioValor.toUpperCase();
+    const ufValor = values.uf.trim().toUpperCase();
+    const fornecedorGrupo = sanitize(values.fornecedor_grupo);
+    const fornecedorCondicao = sanitize(values.fornecedor_condicao);
+    const vendasVendedor = sanitize(values.vendas_vendedor);
+    const vendasGrupo = sanitize(values.vendas_grupo);
+    const fiscalNatureza = sanitize(values.fiscal_natureza_operacao);
+    const fiscalBeneficio = sanitize(values.fiscal_tipo_beneficio);
+    const fiscalRegime = sanitize(values.fiscal_regime_declaracao);
+    const creditoParceiro = sanitize(values.credito_parceiro);
+    const creditoModalidade = sanitize(values.credito_modalidade);
+    const creditoMontanteRaw = sanitize(values.credito_montante);
+    const creditoValidade = sanitize(values.credito_validade);
+
     const payload = {
       tipo_pessoa: values.tipo_pessoa,
       natureza: values.natureza,
-      documento: onlyDigits(values.documento),
-      nome_legal: values.nome_legal,
-      nome_fantasia: values.nome_fantasia,
-      ie: values.ie,
-      im: values.im,
-      suframa: values.suframa,
-      regime_tributario: values.regime_tributario,
+      documento: documentoLimpo,
+      nome_legal: values.nome_legal.trim(),
+      ...(nomeFantasia ? { nome_fantasia: nomeFantasia } : {}),
+      ...(values.tipo_pessoa === "PJ"
+        ? {
+            ...(inscricaoEstadual ? { ie: inscricaoEstadual } : {}),
+            ...(inscricaoMunicipal ? { im: inscricaoMunicipal } : {}),
+            ...(regimeTributario ? { regime_tributario: regimeTributario } : {}),
+            ...(suframa ? { suframa } : {})
+          }
+        : {
+            ...(suframa ? { suframa } : {})
+          }),
       contato_principal: {
-        nome: values.contato_nome,
-        email: values.contato_email,
-        fone: values.contato_fone
+        nome: values.contato_nome.trim(),
+        email: values.contato_email.trim(),
+        ...(contatoFone ? { fone: contatoFone } : {})
       },
       comunicacao: {
-        telefone: values.telefone,
-        celular: values.celular,
+        ...(telefone ? { telefone } : {}),
+        ...(celular ? { celular } : {}),
         emails: values.comunicacao_emails.map((email, index) => ({
-          endereco: email.endereco,
+          endereco: email.endereco.trim(),
           padrao: email.padrao ?? index === 0
         }))
       },
@@ -280,44 +339,55 @@ export default function NewPartner() {
         {
           tipo: "fiscal",
           cep: onlyDigits(values.cep),
-          logradouro: values.logradouro,
-          numero: values.numero,
-          complemento: values.complemento,
-          bairro: values.bairro,
-          municipio_ibge: values.municipio_ibge || values.municipio,
-          uf: values.uf.toUpperCase(),
-          municipio: values.municipio.toUpperCase(),
+          logradouro: values.logradouro.trim(),
+          numero: values.numero.trim(),
+          ...(complemento ? { complemento } : {}),
+          bairro: values.bairro.trim(),
+          municipio_ibge: municipioIbge || municipioValor,
+          uf: ufValor,
+          municipio: municipioUpper,
           pais: "BR"
         }
       ],
-      banks: values.banks.map((bank) => ({
-        ...bank,
-        agencia: bank.agencia,
-        conta: bank.conta
-      })),
+      banks: values.banks.map((bank) => {
+        const pix = sanitize(bank.pix);
+        return {
+          banco: bank.banco.trim(),
+          agencia: bank.agencia.trim(),
+          conta: bank.conta.trim(),
+          ...(pix ? { pix } : {})
+        };
+      }),
       fornecedor_info: requiresFornecedor
         ? {
-            grupo: values.fornecedor_grupo,
-            condicao_pagamento: values.fornecedor_condicao
+            ...(fornecedorGrupo ? { grupo: fornecedorGrupo } : {}),
+            ...(fornecedorCondicao ? { condicao_pagamento: fornecedorCondicao } : {})
           }
         : {},
       vendas_info: requiresCliente
         ? {
-            vendedor: values.vendas_vendedor,
-            grupo_clientes: values.vendas_grupo
+            ...(vendasVendedor ? { vendedor: vendasVendedor } : {}),
+            ...(vendasGrupo ? { grupo_clientes: vendasGrupo } : {})
           }
         : {},
       fiscal_info: {
-        natureza_operacao: values.fiscal_natureza_operacao,
-        tipo_beneficio_suframa: values.fiscal_tipo_beneficio,
-        regime_declaracao: values.fiscal_regime_declaracao
+        ...(fiscalNatureza ? { natureza_operacao: fiscalNatureza } : {}),
+        ...(fiscalBeneficio ? { tipo_beneficio_suframa: fiscalBeneficio } : {}),
+        ...(fiscalRegime ? { regime_declaracao: fiscalRegime } : {})
       },
-      transportadores: (values.transportadores || []).filter((item) => item.sap_bp),
+      transportadores: (values.transportadores || [])
+        .map((item) => item.sap_bp?.trim())
+        .filter((sapBp): sapBp is string => Boolean(sapBp))
+        .map((sapBp) => ({ sap_bp: sapBp })),
       credito_info: {
-        parceiro: values.credito_parceiro,
-        modalidade: values.credito_modalidade,
-        montante: values.credito_montante ? Number(values.credito_montante.replace(/[^0-9.,-]/g, '').replace(',', '.')) : undefined,
-        validade: values.credito_validade
+        ...(creditoParceiro ? { parceiro: creditoParceiro } : {}),
+        ...(creditoModalidade ? { modalidade: creditoModalidade } : {}),
+        ...(creditoMontanteRaw
+          ? {
+              montante: Number(creditoMontanteRaw.replace(/[^0-9.,-]/g, "").replace(",", "."))
+            }
+          : {}),
+        ...(creditoValidade ? { validade: creditoValidade } : {})
       },
       sap_segments: []
     };
@@ -383,13 +453,15 @@ export default function NewPartner() {
 
           <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Identificação</h2>
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <div className={`mt-4 grid gap-4 ${isPessoaJuridica ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
               <div className="md:col-span-2">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Documento</label>
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">
+                  {isPessoaJuridica ? "CNPJ" : "CPF"}
+                </label>
                 <div className="flex gap-2">
                   <input
                     {...register("documento")}
-                    placeholder={tipoPessoa === "PJ" ? "CNPJ" : "CPF"}
+                    placeholder={isPessoaJuridica ? "00.000.000/0000-00" : "000.000.000-00"}
                     className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                   />
                   <button
@@ -404,35 +476,70 @@ export default function NewPartner() {
                 {renderError("documento")}
                 {docError && <p className="mt-1 text-sm text-red-600">{docError}</p>}
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Inscrição Estadual</label>
-                <input {...register("ie")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
-              </div>
+              {isPessoaJuridica && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Inscrição Estadual</label>
+                  <input
+                    {...register("ie")}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="Isento, se aplicável"
+                  />
+                  {renderError("ie")}
+                </div>
+              )}
             </div>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Nome legal</label>
-                <input {...register("nome_legal")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Razão social / Nome completo" />
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">
+                  {isPessoaJuridica ? "Razão social" : "Nome completo"}
+                </label>
+                <input
+                  {...register("nome_legal")}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder={isPessoaJuridica ? "Digite a razão social" : "Digite o nome completo"}
+                />
                 {renderError("nome_legal")}
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Nome fantasia</label>
-                <input {...register("nome_fantasia")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">
+                  {isPessoaJuridica ? "Nome fantasia" : "Nome social"}
+                </label>
+                <input
+                  {...register("nome_fantasia")}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder={isPessoaJuridica ? "Nome fantasia (opcional)" : "Como prefere ser chamado (opcional)"}
+                />
               </div>
             </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Inscrição Municipal</label>
-                <input {...register("im")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
-              </div>
-              <div>
+            <div className={`mt-4 grid gap-4 ${isPessoaJuridica ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+              {isPessoaJuridica && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Inscrição Municipal</label>
+                  <input
+                    {...register("im")}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="Opcional"
+                  />
+                </div>
+              )}
+              <div className={isPessoaJuridica ? "" : "md:col-span-2"}>
                 <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">SUFRAMA</label>
-                <input {...register("suframa")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
+                <input
+                  {...register("suframa")}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder="Opcional"
+                />
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Regime tributário</label>
-                <input {...register("regime_tributario")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Simples, Lucro Presumido..." />
-              </div>
+              {isPessoaJuridica && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Regime tributário</label>
+                  <input
+                    {...register("regime_tributario")}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="Simples, Lucro Presumido..."
+                  />
+                </div>
+              )}
             </div>
           </section>
 
