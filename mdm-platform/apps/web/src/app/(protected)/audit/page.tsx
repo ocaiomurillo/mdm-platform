@@ -17,103 +17,22 @@ import {
 
 import { getStoredUser, StoredUser } from "../../../lib/auth";
 import {
-  AuditJob,
+  cancelAuditJob,
   fetchAuditJobStatus,
+  reprocessAuditJob,
   triggerBulkAudit,
   triggerIndividualAudit
 } from "./audit-service";
+import type { AuditJob } from "./audit-service";
+import { AuditJobCards, AuditJobTable } from "./components/job-list";
+import { AuditJobWithMetadata } from "./types";
+import { isFinalStatus, normalizeText, resolveOriginLabel, resolveStatusLabel } from "./utils";
 
 type FeedbackState = {
   type: "success" | "error";
   message: string;
 };
 
-type DisplayJob = AuditJob & {
-  lastCheckedAt?: string | null;
-};
-
-const FINAL_STATUSES = new Set(["completed", "concluido", "concluído", "sucesso", "success", "failed", "erro", "error", "cancelled", "canceled"]);
-
-const STATUS_LABELS: Record<string, string> = {
-  pending: "Pendente",
-  queued: "Na fila",
-  running: "Em processamento",
-  processing: "Em processamento",
-  completed: "Concluído",
-  concluido: "Concluído",
-  "concluído": "Concluído",
-  success: "Concluído",
-  failed: "Falhou",
-  erro: "Falhou",
-  error: "Falhou",
-  cancelled: "Cancelado",
-  canceled: "Cancelado"
-};
-
-const STATUS_TONES: Record<string, string> = {
-  completed: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  concluido: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  "concluído": "border-emerald-200 bg-emerald-50 text-emerald-700",
-  success: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  running: "border-indigo-200 bg-indigo-50 text-indigo-700",
-  processing: "border-indigo-200 bg-indigo-50 text-indigo-700",
-  pending: "border-amber-200 bg-amber-50 text-amber-700",
-  queued: "border-amber-200 bg-amber-50 text-amber-700",
-  failed: "border-red-200 bg-red-50 text-red-700",
-  erro: "border-red-200 bg-red-50 text-red-700",
-  error: "border-red-200 bg-red-50 text-red-700",
-  cancelled: "border-zinc-200 bg-zinc-50 text-zinc-600",
-  canceled: "border-zinc-200 bg-zinc-50 text-zinc-600"
-};
-
-const ORIGIN_LABELS: Record<string, string> = {
-  individual: "Individual",
-  bulk: "Em massa"
-};
-
-function normalizeText(value: string | null | undefined) {
-  return value ? value.toLowerCase() : "";
-}
-
-function isFinalStatus(status: string | null | undefined) {
-  const normalized = normalizeText(status);
-  return normalized ? FINAL_STATUSES.has(normalized) : false;
-}
-
-function resolveStatusLabel(status: string | null | undefined) {
-  const normalized = normalizeText(status);
-  if (!normalized) return "Indefinido";
-  return STATUS_LABELS[normalized] ?? status ?? "Indefinido";
-}
-
-function resolveStatusTone(status: string | null | undefined) {
-  const normalized = normalizeText(status);
-  if (normalized && STATUS_TONES[normalized]) {
-    return STATUS_TONES[normalized];
-  }
-  return "border-zinc-200 bg-zinc-50 text-zinc-600";
-}
-
-function resolveOriginLabel(origin: string | null | undefined) {
-  const normalized = normalizeText(origin);
-  if (!normalized) return "Não informado";
-  return ORIGIN_LABELS[normalized] ?? origin ?? "Não informado";
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
 
 function parsePartnerIds(raw: string) {
   return Array.from(
@@ -135,7 +54,7 @@ export default function AuditPage() {
   const [individualPartnerId, setIndividualPartnerId] = useState("");
   const [bulkPartnerIds, setBulkPartnerIds] = useState("");
   const [manualJobId, setManualJobId] = useState("");
-  const [jobs, setJobs] = useState<DisplayJob[]>([]);
+  const [jobs, setJobs] = useState<AuditJobWithMetadata[]>([]);
   const [partnerFilter, setPartnerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [originFilter, setOriginFilter] = useState("all");
@@ -143,6 +62,8 @@ export default function AuditPage() {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [manualLoading, setManualLoading] = useState(false);
   const [refreshingJobs, setRefreshingJobs] = useState<string[]>([]);
+  const [reprocessingJobs, setReprocessingJobs] = useState<string[]>([]);
+  const [cancelingJobs, setCancelingJobs] = useState<string[]>([]);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -195,7 +116,8 @@ export default function AuditPage() {
           ...previous,
           ...job,
           createdAt: job.createdAt ?? previous?.createdAt ?? timestamp,
-          lastCheckedAt: timestamp
+          lastCheckedAt: timestamp,
+          result: job.result ?? previous?.result ?? null
         },
         ...withoutCurrent
       ];
@@ -218,7 +140,8 @@ export default function AuditPage() {
                   partnerIds: job.partnerIds.length > 0 ? job.partnerIds : existing.partnerIds,
                   origin: job.origin || existing.origin,
                   lastCheckedAt: timestamp,
-                  error: job.error ?? existing.error
+                  error: job.error ?? existing.error,
+                  result: job.result ?? existing.result
                 }
               : existing
           )
@@ -348,6 +271,67 @@ export default function AuditPage() {
       }
     },
     [manualJobId, token, apiUrl, upsertJob, buildErrorMessage]
+  );
+
+  const handleRefreshFromList = useCallback(
+    (job: AuditJobWithMetadata) => {
+      refreshJob(job.jobId);
+    },
+    [refreshJob]
+  );
+
+  const handleReprocessJob = useCallback(
+    async (job: AuditJobWithMetadata) => {
+      if (!token || !apiUrl) {
+        setFeedback({ type: "error", message: "Configuração de API ausente. Verifique as variáveis de ambiente." });
+        return;
+      }
+      setReprocessingJobs((prev) => (prev.includes(job.jobId) ? prev : [...prev, job.jobId]));
+      try {
+        const updated = await reprocessAuditJob({ apiUrl, token, jobId: job.jobId, currentJob: job });
+        upsertJob(updated);
+        setFeedback({ type: "success", message: "Reprocessamento solicitado com sucesso." });
+        if (!isFinalStatus(updated.status)) {
+          refreshJob(updated.jobId);
+        }
+      } catch (error: any) {
+        if (error?.response?.status === 404) {
+          setFeedback({ type: "error", message: "Reprocessamento não suportado pela API atual." });
+        } else {
+          const message = buildErrorMessage(error, "Não foi possível reprocessar a auditoria.");
+          setFeedback({ type: "error", message });
+        }
+      } finally {
+        setReprocessingJobs((prev) => prev.filter((id) => id !== job.jobId));
+      }
+    },
+    [token, apiUrl, upsertJob, refreshJob, buildErrorMessage]
+  );
+
+  const handleCancelJob = useCallback(
+    async (job: AuditJobWithMetadata) => {
+      if (!token || !apiUrl) {
+        setFeedback({ type: "error", message: "Configuração de API ausente. Verifique as variáveis de ambiente." });
+        return;
+      }
+      setCancelingJobs((prev) => (prev.includes(job.jobId) ? prev : [...prev, job.jobId]));
+      try {
+        const updated = await cancelAuditJob({ apiUrl, token, jobId: job.jobId, currentJob: job });
+        upsertJob(updated);
+        setFeedback({ type: "success", message: "Job de auditoria cancelado." });
+        refreshJob(updated.jobId);
+      } catch (error: any) {
+        if (error?.response?.status === 404) {
+          setFeedback({ type: "error", message: "Cancelamento não suportado pela API atual." });
+        } else {
+          const message = buildErrorMessage(error, "Não foi possível cancelar a auditoria.");
+          setFeedback({ type: "error", message });
+        }
+      } finally {
+        setCancelingJobs((prev) => prev.filter((id) => id !== job.jobId));
+      }
+    },
+    [token, apiUrl, upsertJob, refreshJob, buildErrorMessage]
   );
 
   const statusOptions = useMemo(() => {
@@ -567,127 +551,24 @@ export default function AuditPage() {
           </div>
         ) : (
           <>
-            <div className="hidden overflow-hidden rounded-2xl border border-zinc-200 bg-white md:block">
-              <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-medium">Job</th>
-                    <th className="px-4 py-3 text-left font-medium">Parceiros</th>
-                    <th className="px-4 py-3 text-left font-medium">Origem</th>
-                    <th className="px-4 py-3 text-left font-medium">Status</th>
-                    <th className="px-4 py-3 text-left font-medium">Solicitado por</th>
-                    <th className="px-4 py-3 text-left font-medium">Criado em</th>
-                    <th className="px-4 py-3 text-left font-medium">Atualizado</th>
-                    <th className="px-4 py-3 text-right font-medium">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-200">
-                  {filteredJobs.map((job) => {
-                    const statusTone = resolveStatusTone(job.status);
-                    const normalizedStatus = resolveStatusLabel(job.status);
-                    const isRefreshing = refreshingJobs.includes(job.jobId);
-                    return (
-                      <tr key={job.jobId} className="hover:bg-zinc-50">
-                        <td className="px-4 py-3 font-mono text-xs text-zinc-600">{job.jobId}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-wrap gap-2">
-                            {job.partnerIds.length > 0
-                              ? job.partnerIds.map((id) => (
-                                  <span
-                                    key={id}
-                                    className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600"
-                                  >
-                                    {id}
-                                  </span>
-                                ))
-                              : (
-                                <span className="text-xs text-zinc-400">Não informado</span>
-                                )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-zinc-600">{resolveOriginLabel(job.origin)}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-col gap-1">
-                            <span
-                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${statusTone}`}
-                            >
-                              {normalizedStatus}
-                            </span>
-                            {job.error ? (
-                              <span className="text-xs text-red-600">{job.error}</span>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-zinc-600">{job.requestedBy ?? "-"}</td>
-                        <td className="px-4 py-3 text-sm text-zinc-600">{formatDateTime(job.createdAt)}</td>
-                        <td className="px-4 py-3 text-sm text-zinc-600">
-                          {job.completedAt ? formatDateTime(job.completedAt) : job.lastCheckedAt ? formatDateTime(job.lastCheckedAt) : "-"}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => refreshJob(job.jobId)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-600 transition hover:border-zinc-300 hover:text-zinc-900"
-                            disabled={isRefreshing}
-                          >
-                            {isRefreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                            Atualizar
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="grid gap-3 md:hidden">
-              {filteredJobs.map((job) => {
-                const statusTone = resolveStatusTone(job.status);
-                const isRefreshing = refreshingJobs.includes(job.jobId);
-                return (
-                  <article key={job.jobId} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-mono text-xs text-zinc-500">{job.jobId}</div>
-                      <button
-                        type="button"
-                        onClick={() => refreshJob(job.jobId)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2 py-1 text-[11px] font-medium text-zinc-600 transition hover:border-zinc-300 hover:text-zinc-900"
-                        disabled={isRefreshing}
-                      >
-                        {isRefreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                        Atualizar
-                      </button>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {job.partnerIds.length > 0 ? (
-                        job.partnerIds.map((id) => (
-                          <span key={id} className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-600">
-                            {id}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-xs text-zinc-400">Parceiros não informados</span>
-                      )}
-                    </div>
-                    <div className="mt-3 flex flex-col gap-1 text-xs text-zinc-500">
-                      <div>
-                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusTone}`}>
-                          {resolveStatusLabel(job.status)}
-                        </span>
-                      </div>
-                      <div>Origem: {resolveOriginLabel(job.origin)}</div>
-                      <div>Solicitado por: {job.requestedBy ?? "-"}</div>
-                      <div>Criado em: {formatDateTime(job.createdAt)}</div>
-                      <div>
-                        Última atualização: {job.completedAt ? formatDateTime(job.completedAt) : job.lastCheckedAt ? formatDateTime(job.lastCheckedAt) : "-"}
-                      </div>
-                      {job.error ? <div className="flex items-start gap-1 text-red-600"><AlertTriangle className="mt-[2px] h-3 w-3" />{job.error}</div> : null}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
+            <AuditJobTable
+              jobs={filteredJobs}
+              refreshingJobs={refreshingJobs}
+              reprocessingJobs={reprocessingJobs}
+              cancelingJobs={cancelingJobs}
+              onRefresh={handleRefreshFromList}
+              onReprocess={handleReprocessJob}
+              onCancel={handleCancelJob}
+            />
+            <AuditJobCards
+              jobs={filteredJobs}
+              refreshingJobs={refreshingJobs}
+              reprocessingJobs={reprocessingJobs}
+              cancelingJobs={cancelingJobs}
+              onRefresh={handleRefreshFromList}
+              onReprocess={handleReprocessJob}
+              onCancel={handleCancelJob}
+            />
           </>
         )}
       </section>

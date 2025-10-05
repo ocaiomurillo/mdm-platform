@@ -2,8 +2,10 @@ import axios from "axios";
 import { describe, expect, it, beforeEach, vi } from "vitest";
 
 import {
+  cancelAuditJob,
   fetchAuditJobStatus,
   normalizeAuditJob,
+  reprocessAuditJob,
   triggerBulkAudit,
   triggerIndividualAudit
 } from "./audit-service";
@@ -112,6 +114,80 @@ describe("audit-service", () => {
       requestedBy: "auditor",
       origin: "individual",
       completedAt: "2024-01-01T10:00:00.000Z"
+    });
+  });
+
+  it("reprocessa job existente reaproveitando dados atuais quando API não retorna tudo", async () => {
+    mockedAxios.post.mockResolvedValue({
+      data: {
+        status: "queued"
+      }
+    });
+
+    const currentJob = {
+      jobId: "job-555",
+      status: "failed",
+      partnerIds: ["partner-a"],
+      origin: "individual",
+      requestedBy: "tester@example.com"
+    } as const;
+
+    const job = await reprocessAuditJob({
+      apiUrl: "https://api.mdm.test",
+      token: "token123",
+      jobId: "job-555",
+      currentJob: currentJob as any
+    });
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      "https://api.mdm.test/partners/audit/job-555/reprocess",
+      {},
+      { headers: { Authorization: "Bearer token123" } }
+    );
+
+    expect(job).toMatchObject({
+      jobId: "job-555",
+      status: "queued",
+      partnerIds: ["partner-a"],
+      origin: "individual",
+      requestedBy: "tester@example.com"
+    });
+  });
+
+  it("cancela job reaproveitando dados existentes", async () => {
+    mockedAxios.post.mockResolvedValue({
+      data: {
+        status: "cancelled"
+      }
+    });
+
+    const currentJob = {
+      jobId: "job-777",
+      status: "pending",
+      partnerIds: ["partner-1", "partner-2"],
+      origin: "bulk",
+      requestedBy: "tester@example.com"
+    } as const;
+
+    const job = await cancelAuditJob({
+      apiUrl: "https://api.mdm.test",
+      token: "token123",
+      jobId: "job-777",
+      currentJob: currentJob as any
+    });
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      "https://api.mdm.test/partners/audit/job-777/cancel",
+      {},
+      { headers: { Authorization: "Bearer token123" } }
+    );
+
+    expect(job).toMatchObject({
+      jobId: "job-777",
+      status: "cancelled",
+      partnerIds: ["partner-1", "partner-2"],
+      origin: "bulk",
+      requestedBy: "tester@example.com"
     });
   });
 
