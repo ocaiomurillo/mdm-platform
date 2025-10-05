@@ -1,6 +1,6 @@
 ﻿"use client";
 import { useRouter } from "next/navigation";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   useForm,
   useFieldArray,
@@ -19,8 +19,11 @@ import {
   validateIE
 } from "@mdm/utils";
 
-const emailSchema = z.object({
-  endereco: z.string().email("Email inválido"),
+const contactSchema = z.object({
+  nome: z.string().min(2, "Informe o nome do contato"),
+  email: z.string().email("Email inválido"),
+  telefone: z.string().optional(),
+  celular: z.string().optional(),
   padrao: z.boolean().optional()
 });
 
@@ -38,12 +41,7 @@ const transportSchema = z.object({
 const baseSchemaFields = {
   natureza: z.enum(["cliente", "fornecedor", "ambos"]),
   nome_fantasia: z.string().optional(),
-  contato_nome: z.string().min(2, "Informe o responsável"),
-  contato_email: z.string().email("Email inválido"),
-  contato_fone: z.string().optional(),
-  telefone: z.string().optional(),
-  celular: z.string().optional(),
-  comunicacao_emails: z.array(emailSchema).min(1, "Inclua ao menos um email"),
+  contatos: z.array(contactSchema).min(1, "Adicione ao menos um contato"),
   ie: z
     .string()
     .optional()
@@ -119,12 +117,22 @@ const schema = z
   });
 
 type FormValues = z.infer<typeof schema>;
+type ContactFormValue = z.infer<typeof contactSchema>;
+
+const buildEmptyContact = (): ContactFormValue => ({
+  nome: "",
+  email: "",
+  telefone: "",
+  celular: "",
+  padrao: true
+});
 
 type LookupResult = {
   nome?: string;
   nome_social?: string;
   email?: string;
   telefone?: string;
+  celular?: string;
   data_nascimento?: string;
   endereco?: {
     cep?: string;
@@ -175,13 +183,14 @@ export default function NewPartner() {
     handleSubmit,
     setValue,
     watch,
+    getValues,
     formState: { errors, isSubmitting, dirtyFields }
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       tipo_pessoa: "PJ",
       natureza: "cliente",
-      comunicacao_emails: [{ endereco: "", padrao: true }],
+      contatos: [{ nome: "", email: "", telefone: "", celular: "", padrao: true }],
       banks: [{ banco: "", agencia: "", conta: "", pix: "" }],
       transportadores: []
     }
@@ -190,6 +199,8 @@ export default function NewPartner() {
   const natureza = watch("natureza");
   const tipoPessoa = watch("tipo_pessoa");
   const formValues = watch();
+  const cepValue = watch("cep");
+  const lastCepLookup = useRef<string | null>(null);
 
   const natureLabels: Record<FormValues["natureza"], string> = {
     cliente: "Cliente",
@@ -214,7 +225,7 @@ export default function NewPartner() {
     return Boolean(value);
   };
 
-  const emails = formValues?.comunicacao_emails ?? [];
+  const contacts = formValues?.contatos ?? [];
   const banks = formValues?.banks ?? [];
   const transporters = formValues?.transportadores ?? [];
 
@@ -236,16 +247,11 @@ export default function NewPartner() {
         isFilledString((formValues as any)?.[field])
       ) && !hasAnyError(["cep", "logradouro", "numero", "bairro", "municipio", "uf", "municipio_ibge"]);
 
-    const contactEmailsComplete =
-      emails.length > 0 &&
-      emails.every((email) => isFilledString(email?.endereco)) &&
-      !hasAnyError(["comunicacao_emails"]);
-
     const contactComplete =
-      isFilledString(formValues?.contato_nome) &&
-      isFilledString(formValues?.contato_email) &&
-      contactEmailsComplete &&
-      !hasAnyError(["contato_nome", "contato_email"]);
+      contacts.length > 0 &&
+      contacts.every((contact) => isFilledString(contact?.nome) && isFilledString(contact?.email)) &&
+      contacts.some((contact) => contact?.padrao) &&
+      !hasAnyError(["contatos"]);
 
     const financeComplete =
       banks.length > 0 &&
@@ -354,29 +360,17 @@ export default function NewPartner() {
     );
 
     return steps;
-  }, [
-    banks,
-    emails,
-    errors,
-    formValues,
-    natureza,
-    requiresCliente,
-    requiresFornecedor,
-    tipoPessoa,
-    transporters
-  ]);
+  }, [banks, contacts, errors, formValues, natureza, requiresCliente, requiresFornecedor, tipoPessoa, transporters]);
 
   const activeStepId = useMemo(
     () => timelineSteps.find((step) => !step.completed)?.id ?? timelineSteps[timelineSteps.length - 1]?.id,
     [timelineSteps]
   );
 
-  const {
-    fields: emailFields,
-    append: appendEmail,
-    remove: removeEmail,
-    replace: replaceEmails
-  } = useFieldArray({ control, name: "comunicacao_emails" });
+  const [contactModalOpen, setContactModalOpen] = useState(false);
+  const [contactModalError, setContactModalError] = useState<string | null>(null);
+  const [editingContactIndex, setEditingContactIndex] = useState<number | null>(null);
+  const [contactDraft, setContactDraft] = useState<ContactFormValue>(buildEmptyContact);
 
   const {
     fields: bankFields,
@@ -413,6 +407,231 @@ export default function NewPartner() {
       setValue(field, value, options);
     }
   };
+
+  const setContactsValue = (
+    nextContacts: ContactFormValue[],
+    options: { shouldValidate?: boolean } = {}
+  ) => {
+    setValue("contatos", nextContacts, {
+      shouldDirty: true,
+      shouldValidate: options.shouldValidate ?? true
+    });
+  };
+
+  const openNewContactModal = () => {
+    const current = getValues("contatos") ?? [];
+    const empty = buildEmptyContact();
+    if (current.some((contact) => contact?.padrao)) {
+      empty.padrao = false;
+    }
+    setContactDraft(empty);
+    setEditingContactIndex(null);
+    setContactModalError(null);
+    setContactModalOpen(true);
+  };
+
+  const openEditContactModal = (index: number) => {
+    const current = getValues("contatos") ?? [];
+    const target = current[index];
+    if (!target) return;
+    setContactDraft({
+      nome: target.nome ?? "",
+      email: target.email ?? "",
+      telefone: target.telefone ?? "",
+      celular: target.celular ?? "",
+      padrao: target.padrao ?? false
+    });
+    setEditingContactIndex(index);
+    setContactModalError(null);
+    setContactModalOpen(true);
+  };
+
+  const closeContactModal = () => {
+    setContactModalOpen(false);
+    setContactModalError(null);
+    setContactDraft(buildEmptyContact());
+    setEditingContactIndex(null);
+  };
+
+  const handleSetDefaultContact = (index: number) => {
+    const current = getValues("contatos") ?? [];
+    if (!current[index]) {
+      return;
+    }
+    const updated = current.map((contact, idx) => ({
+      nome: contact.nome ?? "",
+      email: contact.email ?? "",
+      telefone: contact.telefone ?? "",
+      celular: contact.celular ?? "",
+      padrao: idx === index
+    }));
+    setContactsValue(updated);
+  };
+
+  const handleRemoveContact = (index: number) => {
+    const current = getValues("contatos") ?? [];
+    if (current.length <= 1) {
+      return;
+    }
+    const updated = current
+      .filter((_, idx) => idx !== index)
+      .map((contact) => ({
+        nome: contact.nome ?? "",
+        email: contact.email ?? "",
+        telefone: contact.telefone ?? "",
+        celular: contact.celular ?? "",
+        padrao: contact.padrao ?? false
+      }));
+    if (!updated.some((contact) => contact.padrao)) {
+      updated[0] = { ...updated[0], padrao: true };
+    }
+    setContactsValue(updated);
+  };
+
+  const handleSaveContact = () => {
+    const trimmedNome = contactDraft.nome?.trim() ?? "";
+    const trimmedEmail = contactDraft.email?.trim() ?? "";
+    const trimmedTelefone = contactDraft.telefone?.trim() ?? "";
+    const trimmedCelular = contactDraft.celular?.trim() ?? "";
+
+    const validation = contactSchema.safeParse({
+      nome: trimmedNome,
+      email: trimmedEmail,
+      telefone: trimmedTelefone,
+      celular: trimmedCelular,
+      padrao: contactDraft.padrao ?? false
+    });
+
+    if (!validation.success) {
+      const issue = validation.error.issues[0];
+      setContactModalError(issue?.message ?? "Revise os dados do contato.");
+      return;
+    }
+
+    const sanitized: ContactFormValue = {
+      nome: trimmedNome,
+      email: trimmedEmail,
+      telefone: trimmedTelefone,
+      celular: trimmedCelular,
+      padrao: validation.data.padrao ?? false
+    };
+
+    const current = getValues("contatos") ?? [];
+    let updated = current.map((contact) => ({
+      nome: contact.nome ?? "",
+      email: contact.email ?? "",
+      telefone: contact.telefone ?? "",
+      celular: contact.celular ?? "",
+      padrao: contact.padrao ?? false
+    }));
+
+    if (editingContactIndex === null) {
+      updated = [...updated, sanitized];
+      const shouldBeDefault = sanitized.padrao || !current.some((contact) => contact?.padrao);
+      updated = updated.map((contact, index) => ({
+        ...contact,
+        padrao: shouldBeDefault ? index === updated.length - 1 : contact.padrao ?? false
+      }));
+    } else {
+      updated = updated.map((contact, index) =>
+        index === editingContactIndex ? { ...sanitized } : { ...contact }
+      );
+      if (sanitized.padrao) {
+        updated = updated.map((contact, index) => ({
+          ...contact,
+          padrao: index === editingContactIndex
+        }));
+      } else if (!updated.some((contact) => contact.padrao)) {
+        updated = updated.map((contact, index) => ({
+          ...contact,
+          padrao: index === 0
+        }));
+      }
+    }
+
+    setContactsValue(updated);
+    closeContactModal();
+  };
+
+  const fillDefaultContactIfEmpty = (updates: Partial<ContactFormValue>) => {
+    if (!updates) return;
+    const current = getValues("contatos") ?? [];
+    let normalized = current.map((contact) => ({
+      nome: contact.nome ?? "",
+      email: contact.email ?? "",
+      telefone: contact.telefone ?? "",
+      celular: contact.celular ?? "",
+      padrao: contact.padrao ?? false
+    }));
+
+    if (normalized.length === 0) {
+      const next = { ...buildEmptyContact(), ...updates, padrao: true };
+      setContactsValue([next], { shouldValidate: true });
+      return;
+    }
+
+    if (!normalized.some((contact) => contact.padrao)) {
+      normalized = normalized.map((contact, index) => ({
+        ...contact,
+        padrao: index === 0
+      }));
+    }
+
+    const defaultIndex = normalized.findIndex((contact) => contact.padrao);
+    if (defaultIndex < 0) {
+      return;
+    }
+
+    const defaultContact = { ...normalized[defaultIndex] };
+    let changed = false;
+
+    if (typeof updates.nome === "string" && !defaultContact.nome.trim() && updates.nome.trim()) {
+      defaultContact.nome = updates.nome.trim();
+      changed = true;
+    }
+
+    if (typeof updates.email === "string" && !defaultContact.email.trim() && updates.email.trim()) {
+      defaultContact.email = updates.email.trim();
+      changed = true;
+    }
+
+    if (
+      typeof updates.telefone === "string" &&
+      !(defaultContact.telefone ?? "").trim() &&
+      updates.telefone.trim()
+    ) {
+      defaultContact.telefone = updates.telefone.trim();
+      changed = true;
+    }
+
+    if (
+      typeof updates.celular === "string" &&
+      !(defaultContact.celular ?? "").trim() &&
+      updates.celular.trim()
+    ) {
+      defaultContact.celular = updates.celular.trim();
+      changed = true;
+    }
+
+    if (changed) {
+      normalized[defaultIndex] = { ...defaultContact, padrao: true };
+      setContactsValue(normalized, { shouldValidate: true });
+    }
+  };
+
+  useEffect(() => {
+    if (!contactModalOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeContactModal();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [closeContactModal, contactModalOpen]);
 
   type AddressField =
     | "cep"
@@ -499,24 +718,25 @@ export default function NewPartner() {
     if (!data) return;
     if (data.nome) {
       setFieldIfEmpty("nome_legal", data.nome, { shouldValidate: true });
-      if (tipoPessoa === "PF") {
-        setFieldIfEmpty("contato_nome", data.nome, { shouldValidate: true });
-      }
     }
     if (data.nome_social) {
       setValue("nome_fantasia", data.nome_social, { shouldValidate: false });
     }
+    const contactUpdates: Partial<ContactFormValue> = {};
+    if (data.nome) {
+      contactUpdates.nome = data.nome;
+    }
     if (data.email) {
-      const emailEntries = watch("comunicacao_emails");
-      const hasEmail = emailEntries?.some((entry) => entry?.endereco && entry.endereco.trim());
-      if (!hasEmail) {
-        replaceEmails([{ endereco: data.email, padrao: true }]);
-      }
-      setFieldIfEmpty("contato_email", data.email, { shouldValidate: true });
+      contactUpdates.email = data.email;
     }
     if (data.telefone) {
-      setFieldIfEmpty("telefone", data.telefone);
-      setFieldIfEmpty("contato_fone", data.telefone);
+      contactUpdates.telefone = data.telefone;
+    }
+    if (data.celular) {
+      contactUpdates.celular = data.celular;
+    }
+    if (Object.keys(contactUpdates).length > 0) {
+      fillDefaultContactIfEmpty(contactUpdates);
     }
     if (data.inscricao_estadual) {
       setFieldIfEmpty("ie", data.inscricao_estadual);
@@ -538,7 +758,7 @@ export default function NewPartner() {
     try {
       const token = localStorage.getItem("mdmToken");
       if (!token) {
-        router.replace("/login");
+        setDocError("Sessão expirada. Faça login novamente.");
         return;
       }
       const urlSuffix = tipoPessoa === "PJ" ? `cnpj/${digits}` : `cpf/${digits}`;
@@ -548,22 +768,24 @@ export default function NewPartner() {
       const data = response.data as LookupResult;
       applyLookupData(data);
     } catch (error: any) {
-      if (error?.response?.status === 401) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
         localStorage.removeItem("mdmToken");
-        router.replace("/login");
+        setDocError("Sessão expirada. Faça login novamente.");
         return;
       }
-      const message = error?.response?.data?.message;
+      const message = axios.isAxiosError(error)
+        ? error.response?.data?.message ?? error.message
+        : error?.message;
       setDocError(typeof message === "string" ? message : "Não foi possível obter dados do documento.");
     } finally {
       setDocLoading(false);
     }
   };
 
-  const handleLookupCep = async () => {
+  const handleLookupCep = async (input?: string) => {
     if (cepLoading) return;
 
-    const rawCep = watch("cep") || "";
+    const rawCep = (typeof input === "string" ? input : watch("cep") || "") as string;
     const digits = onlyDigits(rawCep);
 
     setCepError(null);
@@ -608,6 +830,24 @@ export default function NewPartner() {
     }
   };
 
+  useEffect(() => {
+    const digits = onlyDigits(cepValue || "");
+    if (digits.length !== 8) {
+      if (digits.length < 8) {
+        lastCepLookup.current = null;
+      }
+      return;
+    }
+    if (cepLoading) {
+      return;
+    }
+    if (lastCepLookup.current === digits) {
+      return;
+    }
+    lastCepLookup.current = digits;
+    void handleLookupCep(cepValue || "");
+  }, [cepLoading, cepValue, handleLookupCep]);
+
   const onSubmit = async (values: FormValues) => {
     setSubmitError(null);
     const token = localStorage.getItem("mdmToken");
@@ -629,9 +869,6 @@ export default function NewPartner() {
     const inscricaoMunicipal = sanitize(values.im);
     const regimeTributario = sanitize(values.regime_tributario);
     const suframa = sanitize(values.suframa);
-    const telefone = sanitize(values.telefone);
-    const celular = sanitize(values.celular);
-    const contatoFone = sanitize(values.contato_fone);
     const complemento = sanitize(values.complemento);
     const municipioIbge = sanitize(values.municipio_ibge);
     const municipioValor = values.municipio.trim();
@@ -648,6 +885,23 @@ export default function NewPartner() {
     const creditoModalidade = sanitize(values.credito_modalidade);
     const creditoMontanteRaw = sanitize(values.credito_montante);
     const creditoValidade = sanitize(values.credito_validade);
+
+    const contactsPayload = values.contatos.map((contact, index) => {
+      const nomeContato = contact.nome.trim();
+      const emailContato = contact.email.trim();
+      const telefoneContato = sanitize(contact.telefone);
+      const celularContato = sanitize(contact.celular);
+      const isPadrao = contact.padrao ?? index === 0;
+      return {
+        nome: nomeContato,
+        email: emailContato,
+        telefone: telefoneContato,
+        celular: celularContato,
+        padrao: isPadrao
+      };
+    });
+
+    const defaultContact = contactsPayload.find((contact) => contact.padrao) ?? contactsPayload[0];
 
     const payload = {
       tipo_pessoa: values.tipo_pessoa,
@@ -666,17 +920,39 @@ export default function NewPartner() {
             ...(suframa ? { suframa } : {})
           }),
       contato_principal: {
-        nome: values.contato_nome.trim(),
-        email: values.contato_email.trim(),
-        ...(contatoFone ? { fone: contatoFone } : {})
+        nome: defaultContact?.nome ?? "",
+        email: defaultContact?.email ?? "",
+        ...(defaultContact?.telefone
+          ? { fone: defaultContact.telefone }
+          : defaultContact?.celular
+          ? { fone: defaultContact.celular }
+          : {})
       },
       comunicacao: {
-        ...(telefone ? { telefone } : {}),
-        ...(celular ? { celular } : {}),
-        emails: values.comunicacao_emails.map((email, index) => ({
-          endereco: email.endereco.trim(),
-          padrao: email.padrao ?? index === 0
-        }))
+        ...(defaultContact?.telefone ? { telefone: defaultContact.telefone } : {}),
+        ...(defaultContact?.celular ? { celular: defaultContact.celular } : {}),
+        emails: contactsPayload.map((contact, index) => ({
+          endereco: contact.email,
+          padrao: contact.padrao ?? index === 0
+        })),
+        ...(contactsPayload.length
+          ? {
+              contatos: contactsPayload.map((contact) => {
+                const entry: Record<string, unknown> = {
+                  nome: contact.nome,
+                  email: contact.email,
+                  padrao: contact.padrao ?? false
+                };
+                if (contact.telefone) {
+                  entry.telefone = contact.telefone;
+                }
+                if (contact.celular) {
+                  entry.celular = contact.celular;
+                }
+                return entry;
+              })
+            }
+          : {})
       },
       addresses: [
         {
@@ -920,21 +1196,14 @@ export default function NewPartner() {
               <div className="mt-4 grid gap-4 md:grid-cols-6">
                 <div className="md:col-span-3">
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">CEP</label>
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-2">
                     <input
                       {...register("cep")}
                       onBlur={handleLookupCep}
                       placeholder="00000-000"
                       className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                     />
-                    <button
-                      type="button"
-                      onClick={handleLookupCep}
-                      disabled={cepLoading}
-                      className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors disabled:cursor-not-allowed disabled:opacity-60 hover:border-zinc-300 hover:bg-zinc-50"
-                    >
-                      {cepLoading ? "Buscando..." : "Buscar CEP"}
-                    </button>
+                    {cepLoading ? <span className="text-xs text-zinc-500">Buscando...</span> : null}
                   </div>
                   {renderError("cep")}
                   {cepError && <p className="mt-1 text-sm text-red-600">{cepError}</p>}
@@ -1002,74 +1271,82 @@ export default function NewPartner() {
               {renderError("municipio_ibge")}
             </section>
 
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Comunicação</h2>
+          <section id="contato" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Contatos</h2>
+                <p className="text-xs text-zinc-500">
+                  Cadastre os responsáveis pela comunicação do parceiro. É obrigatório definir um contato padrão.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={openNewContactModal}
+                className="self-start text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-900"
+              >
+                Adicionar contato
+              </button>
             </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone</label>
-                <input {...register("telefone")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 0000-0000" />
-              </div>
-              <div className="mt-4 grid gap-4 md:grid-cols-3 md:mt-0">
-                <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone do responsável</label>
-                  <input {...register("contato_fone")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 0000-0000" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone geral</label>
-                  <input {...register("telefone")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 0000-0000" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Celular</label>
-                  <input {...register("celular")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 00000-0000" />
-                </div>
-              </div>
-              <div className="mt-6 md:col-span-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Emails</span>
-                  <button
-                    type="button"
-                    onClick={() => appendEmail({ endereco: "", padrao: emailFields.length === 0 })}
-                    className="text-sm font-medium text-zinc-600 hover:text-zinc-900"
-                  >
-                    Adicionar email
-                  </button>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {emailFields.map((field, index) => (
-                    <div key={field.id} className="grid gap-3 md:grid-cols-12 md:items-center">
-                      <div className="md:col-span-6">
-                        <input
-                          {...register(`comunicacao_emails.${index}.endereco` as const)}
-                          className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                          placeholder="email@empresa.com"
-                        />
-                        {renderError(`comunicacao_emails.${index}.endereco`)}
-                      </div>
-                      <div className="md:col-span-3 flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          {...register(`comunicacao_emails.${index}.padrao` as const)}
-                          className="h-4 w-4 rounded border border-zinc-300"
-                        />
-                        <span className="text-sm text-zinc-600">Email padrão</span>
-                      </div>
-                      <div className="md:col-span-3 flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => removeEmail(index)}
-                          className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-50"
-                          disabled={emailFields.length === 1}
-                        >
-                          Remover
-                        </button>
+            <div className="mt-4 space-y-3">
+              {contacts.length ? (
+                contacts.map((contact, index) => {
+                  const nome = contact?.nome?.trim();
+                  const email = contact?.email?.trim();
+                  const telefoneValue = contact?.telefone?.trim();
+                  const celularValue = contact?.celular?.trim();
+                  const isDefault = contact?.padrao ?? index === 0;
+                  return (
+                    <div key={`contact-${index}`} className="flex flex-col gap-3 rounded-xl border border-zinc-200 p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-zinc-800">{nome || "Contato sem nome"}</p>
+                          <p className="text-sm text-zinc-600">{email || "—"}</p>
+                          <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500">
+                            {telefoneValue ? <span>Telefone: {telefoneValue}</span> : null}
+                            {celularValue ? <span>Celular: {celularValue}</span> : null}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-start gap-2 md:items-end">
+                          {isDefault ? (
+                            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                              Contato padrão
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleSetDefaultContact(index)}
+                              className="text-xs font-semibold text-zinc-600 transition-colors hover:text-zinc-900"
+                            >
+                              Definir como padrão
+                            </button>
+                          )}
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openEditContactModal(index)}
+                              className="rounded-lg border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-600 transition-colors hover:bg-zinc-50"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveContact(index)}
+                              disabled={contacts.length === 1}
+                              className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 transition-colors hover:border-red-300 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-zinc-500">Adicione ao menos um contato para este parceiro.</p>
+              )}
             </div>
+            <div className="mt-2">{renderError("contatos")}</div>
           </section>
 
             <section id="financeiro" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -1257,6 +1534,119 @@ export default function NewPartner() {
           </div>
         </form>
       </div>
+
+      {contactModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/50 px-4 py-6"
+          onClick={closeContactModal}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-zinc-900">
+                  {editingContactIndex === null ? "Novo contato" : "Editar contato"}
+                </h3>
+                <p className="text-xs text-zinc-500">
+                  Informe os dados do contato responsável pela comunicação.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeContactModal}
+                className="text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-800"
+              >
+                Fechar
+              </button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Nome</label>
+                <input
+                  value={contactDraft.nome}
+                  onChange={(event) =>
+                    setContactDraft((current) => ({ ...current, nome: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder="Nome completo"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Email</label>
+                <input
+                  type="email"
+                  value={contactDraft.email}
+                  onChange={(event) =>
+                    setContactDraft((current) => ({ ...current, email: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder="email@empresa.com"
+                />
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone</label>
+                  <input
+                    value={contactDraft.telefone ?? ""}
+                    onChange={(event) =>
+                      setContactDraft((current) => ({ ...current, telefone: event.target.value }))
+                    }
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="(00) 0000-0000"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Celular</label>
+                  <input
+                    value={contactDraft.celular ?? ""}
+                    onChange={(event) =>
+                      setContactDraft((current) => ({ ...current, celular: event.target.value }))
+                    }
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="(00) 00000-0000"
+                  />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-zinc-600">
+                <input
+                  type="checkbox"
+                  checked={Boolean(contactDraft.padrao)}
+                  onChange={(event) =>
+                    setContactDraft((current) => ({ ...current, padrao: event.target.checked }))
+                  }
+                  className="h-4 w-4 rounded border border-zinc-300"
+                />
+                Definir como contato padrão
+              </label>
+              {contactModalError ? (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                  {contactModalError}
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeContactModal}
+                className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveContact}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              >
+                {editingContactIndex === null ? "Adicionar contato" : "Salvar alterações"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
