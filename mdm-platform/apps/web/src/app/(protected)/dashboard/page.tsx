@@ -4,6 +4,7 @@ import axios from "axios";
 import { useRouter } from "next/navigation";
 import { PartnerApprovalStage } from "@mdm/types";
 import { getStoredUser } from "../../../lib/auth";
+import { NewEntityMenu } from "../components/new-entity-menu";
 
 const statusLabels: Record<string, string> = {
   draft: "Rascunhos",
@@ -136,10 +137,13 @@ export default function Dashboard() {
 
   return (
     <main className="flex min-h-screen flex-col gap-6 bg-zinc-100 p-6">
-      <header>
-        <h1 className="text-2xl font-semibold text-zinc-900">Dashboard</h1>
-        <p className="text-sm text-zinc-500">Acompanhe o andamento dos cadastros de parceiros.</p>
-      </header>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <header className="space-y-1">
+          <h1 className="text-2xl font-semibold text-zinc-900">Dashboard</h1>
+          <p className="text-sm text-zinc-500">Acompanhe o andamento dos cadastros de parceiros.</p>
+        </header>
+        <NewEntityMenu className="self-start md:self-auto" />
+      </div>
 
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

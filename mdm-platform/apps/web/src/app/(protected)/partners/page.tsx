@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { PartnerApprovalStage } from "@mdm/types";
 import { getStoredUser, StoredUser } from "../../../lib/auth";
 import { mapSapSegments, summarizeSapOverall } from "./sap-integration-helpers";
+import { NewEntityMenu } from "../components/new-entity-menu";
 
 const stageLabels: Record<PartnerApprovalStage, string> = {
   fiscal: "Fiscal",
@@ -373,19 +374,22 @@ export default function PartnersList() {
       <section className="flex flex-col gap-3">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <h1 className="text-2xl font-semibold text-zinc-900">Parceiros</h1>
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar por nome, documento, ID SAP ou MDM"
-                className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm md:w-80"
-              />
-            </div>
+          <NewEntityMenu className="self-start md:self-auto" />
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:w-auto sm:flex-1 md:flex-initial">
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Buscar por nome, documento, ID SAP ou MDM"
+              className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm md:w-80"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2">
             <button
               type="button"
               onClick={() => setShowColumnPicker((value) => !value)}
-              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50"
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
             >
               ⚙
             </button>
