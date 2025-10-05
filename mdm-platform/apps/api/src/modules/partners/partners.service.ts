@@ -25,6 +25,8 @@ import { PartnerChangeRequest } from "./entities/partner-change-request.entity";
 import { PartnerNote } from "./entities/partner-note.entity";
 import { CreatePartnerNoteDto } from "./dto/partner-note.dto";
 import { SapIntegrationService, SAP_INTEGRATION_SEGMENTS } from "./sap-integration.service";
+import { CreatePartnerDraftDto, UpdatePartnerDraftDto } from "./dto/partner-draft.dto";
+import { PartnerDraft } from "./entities/partner-draft.entity";
 import {
   changeRequestFieldDefinitions,
   ChangeRequestOrigin,
@@ -171,8 +173,63 @@ export class PartnersService {
     @InjectRepository(PartnerAuditJob) private readonly auditJobRepo: Repository<PartnerAuditJob>,
     @InjectRepository(PartnerAuditLog) private readonly auditLogRepo: Repository<PartnerAuditLog>,
     @InjectRepository(PartnerNote) private readonly noteRepo: Repository<PartnerNote>,
+    @InjectRepository(PartnerDraft) private readonly draftRepo: Repository<PartnerDraft>,
     private readonly sapIntegration: SapIntegrationService
   ) {}
+
+  private ensureAuthenticatedUser(user?: AuthenticatedUser | null): AuthenticatedUser {
+    if (!user?.id) {
+      throw new UnauthorizedException("Usuário não autenticado");
+    }
+    return user;
+  }
+
+  private async getDraftOwnedByUser(id: string, user: AuthenticatedUser) {
+    const draft = await this.draftRepo.findOne({ where: { id } });
+    if (!draft) {
+      throw new NotFoundException("Rascunho não encontrado");
+    }
+    if (draft.createdById !== user.id) {
+      throw new ForbiddenException("Você não tem acesso a este rascunho");
+    }
+    return draft;
+  }
+
+  async createDraft(dto: CreatePartnerDraftDto, user: AuthenticatedUser) {
+    const author = this.ensureAuthenticatedUser(user);
+    const payload = dto.payload ?? {};
+    const draft = this.draftRepo.create({
+      payload,
+      status: "draft",
+      createdById: author.id,
+      createdByName: author.name ?? author.email ?? null
+    });
+    return this.draftRepo.save(draft);
+  }
+
+  async listDrafts(user: AuthenticatedUser) {
+    const author = this.ensureAuthenticatedUser(user);
+    return this.draftRepo.find({
+      where: { createdById: author.id },
+      order: { updatedAt: "DESC" }
+    });
+  }
+
+  async updateDraft(id: string, dto: UpdatePartnerDraftDto, user: AuthenticatedUser) {
+    const author = this.ensureAuthenticatedUser(user);
+    const draft = await this.getDraftOwnedByUser(id, author);
+    if (dto.payload) {
+      draft.payload = { ...draft.payload, ...dto.payload };
+    }
+    return this.draftRepo.save(draft);
+  }
+
+  async deleteDraft(id: string, user: AuthenticatedUser) {
+    const author = this.ensureAuthenticatedUser(user);
+    await this.getDraftOwnedByUser(id, author);
+    await this.draftRepo.delete(id);
+    return { success: true };
+  }
 
   private readonly recentNoteWindowMs = 7 * 24 * 60 * 60 * 1000;
 

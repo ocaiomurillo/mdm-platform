@@ -19,12 +19,17 @@ vi.mock("axios", () => ({
 const routerPushMock = vi.fn();
 const routerReplaceMock = vi.fn();
 const routerBackMock = vi.fn();
+const routerMock = {
+  push: routerPushMock,
+  replace: routerReplaceMock,
+  back: routerBackMock
+};
+let currentSearchParams = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: routerPushMock,
-    replace: routerReplaceMock,
-    back: routerBackMock
+  useRouter: () => routerMock,
+  useSearchParams: () => ({
+    get: (key: string) => currentSearchParams.get(key)
   })
 }));
 
@@ -52,6 +57,7 @@ describe("NewPartner address form", () => {
     localStorage.clear();
     localStorage.setItem("mdmToken", "token");
     process.env.NEXT_PUBLIC_API_URL = "http://localhost:3333";
+    currentSearchParams = new URLSearchParams();
   });
 
   it("fills address fields from CEP lookup and preserves manual edits", async () => {
@@ -142,5 +148,69 @@ describe("NewPartner address form", () => {
     expect(screen.getByText("Informe o logradouro")).toBeInTheDocument();
     expect(screen.getByText("Informe o número")).toBeInTheDocument();
     expect(axiosMock.post).not.toHaveBeenCalled();
+  });
+
+  it("saves a draft using the draft endpoint", async () => {
+    const user = userEvent.setup();
+
+    axiosMock.post.mockResolvedValueOnce({ data: { id: "draft-1", payload: {} } });
+
+    render(<NewPartner />);
+
+    await user.click(screen.getByRole("button", { name: /salvar esboço/i }));
+
+    await waitFor(() => {
+      expect(axiosMock.post).toHaveBeenCalledWith(
+        "http://localhost:3333/partners/drafts",
+        expect.objectContaining({ payload: expect.any(Object) }),
+        expect.objectContaining({ headers: { Authorization: "Bearer token" } })
+      );
+    });
+
+    expect(localStorage.getItem("mdm-partner-draft-id")).toBe("draft-1");
+    expect(routerReplaceMock).toHaveBeenCalledWith("/partners/new?draftId=draft-1");
+  });
+
+  it("updates an existing draft when draftId is present", async () => {
+    const user = userEvent.setup();
+
+    currentSearchParams = new URLSearchParams("draftId=draft-1");
+    axiosMock.get.mockResolvedValueOnce({
+      data: [
+        {
+          id: "draft-1",
+          payload: {
+            tipo_pessoa: "PJ",
+            natureza: "cliente",
+            comunicacao_emails: [{ endereco: "contato@example.com", padrao: true }],
+            banks: [{ banco: "", agencia: "", conta: "", pix: "" }],
+            transportadores: []
+          }
+        }
+      ]
+    });
+    axiosMock.patch.mockResolvedValueOnce({ data: { id: "draft-1" } });
+
+    render(<NewPartner />);
+
+    await waitFor(() => {
+      expect(axiosMock.get).toHaveBeenCalledWith(
+        "http://localhost:3333/partners/drafts",
+        expect.objectContaining({ headers: { Authorization: "Bearer token" } })
+      );
+    });
+
+    const saveButton = await screen.findByRole("button", { name: /salvar esboço/i });
+    await user.click(saveButton);
+
+    await waitFor(() => {
+      expect(axiosMock.patch).toHaveBeenCalledWith(
+        "http://localhost:3333/partners/drafts/draft-1",
+        expect.objectContaining({ payload: expect.any(Object) }),
+        expect.objectContaining({ headers: { Authorization: "Bearer token" } })
+      );
+    });
+
+    expect(routerReplaceMock).not.toHaveBeenCalledWith("/partners/new?draftId=draft-1");
   });
 });
