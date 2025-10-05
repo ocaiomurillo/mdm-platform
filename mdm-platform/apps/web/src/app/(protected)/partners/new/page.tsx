@@ -130,8 +130,23 @@ type LookupResult = {
   inscricao_estadual?: string;
 };
 
-const readOnlyAddressInputClass =
-  "w-full rounded-lg border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm text-zinc-500 cursor-not-allowed focus:border-zinc-200 focus:ring-0";
+type ViaCepResponse = {
+  cep: string;
+  state: string;
+  city: string;
+  neighborhood: string;
+  street: string;
+  service?: string;
+  city_ibge?: string | number;
+  ddd?: string;
+  location?: {
+    type: string;
+    coordinates: {
+      longitude: string;
+      latitude: string;
+    };
+  };
+};
 
 const natureMatches = (natureza: string, targets: Array<'cliente' | 'fornecedor'>) => {
   return targets.some((target) => natureza === target || natureza === 'ambos');
@@ -481,6 +496,52 @@ export default function NewPartner() {
     }
   };
 
+  const handleLookupCep = async () => {
+    if (cepLoading) return;
+
+    const rawCep = watch("cep") || "";
+    const digits = onlyDigits(rawCep);
+
+    if (digits.length !== 8) {
+      setCepError("CEP inválido.");
+      return;
+    }
+
+    setCepError(null);
+    setCepLoading(true);
+
+    try {
+      const response = await axios.get<ViaCepResponse>(`https://brasilapi.com.br/api/cep/v2/${digits}`);
+      const data = response.data;
+
+      if (!data || !data.cep) {
+        setCepError("CEP inválido.");
+        return;
+      }
+
+      const street = data.street?.trim();
+      const neighborhood = data.neighborhood?.trim();
+      const city = data.city?.trim();
+      const state = data.state?.trim();
+      const cityIbge = data.city_ibge ? `${data.city_ibge}` : undefined;
+
+      setValue("cep", data.cep, { shouldValidate: true });
+      if (street) setValue("logradouro", street.toUpperCase(), { shouldValidate: true });
+      if (neighborhood) setValue("bairro", neighborhood.toUpperCase(), { shouldValidate: true });
+      if (city) setValue("municipio", city.toUpperCase(), { shouldValidate: true });
+      setValue("municipio_ibge", cityIbge, { shouldValidate: true });
+      if (state) setValue("uf", state.toUpperCase().slice(0, 2), { shouldValidate: true });
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        setCepError("CEP inválido.");
+        return;
+      }
+      setCepError("CEP inválido.");
+    } finally {
+      setCepLoading(false);
+    }
+  };
+
   const onSubmit = async (values: FormValues) => {
     setSubmitError(null);
     const token = localStorage.getItem("mdmToken");
@@ -793,8 +854,23 @@ export default function NewPartner() {
               <div className="mt-4 grid gap-4 md:grid-cols-6">
                 <div className="md:col-span-2">
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">CEP</label>
-                  <input {...register("cep")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="00000-000" />
+                  <div className="flex gap-2">
+                    <input
+                      {...register("cep")}
+                      className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                      placeholder="00000-000"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleLookupCep}
+                      disabled={cepLoading}
+                      className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors disabled:cursor-not-allowed disabled:opacity-60 hover:border-zinc-300 hover:bg-zinc-50"
+                    >
+                      {cepLoading ? "Buscando..." : "Buscar CEP"}
+                    </button>
+                  </div>
                   {renderError("cep")}
+                  {cepError && <p className="mt-1 text-sm text-red-600">{cepError}</p>}
                 </div>
                 <div className="md:col-span-4">
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Logradouro</label>
