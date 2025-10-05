@@ -106,10 +106,17 @@ const createSchema = (tipo: "PJ" | "PF") => {
     });
 };
 
-  if (data.ie && !validateIE(data.ie, { allowIsento: true })) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ie"], message: "Inscrição estadual inválida" });
-  }
-});
+const schema = z
+  .discriminatedUnion("tipo_pessoa", [createSchema("PJ"), createSchema("PF")])
+  .superRefine((data, ctx) => {
+    if (data.ie && !validateIE(data.ie, { allowIsento: true })) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ie"],
+        message: "Inscrição estadual inválida"
+      });
+    }
+  });
 
 type FormValues = z.infer<typeof schema>;
 
