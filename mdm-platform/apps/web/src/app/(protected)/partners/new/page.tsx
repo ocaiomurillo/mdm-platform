@@ -1,7 +1,7 @@
 ﻿"use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useForm, useFieldArray, type Path, type PathValue } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
@@ -80,34 +80,37 @@ const baseSchema = {
   credito_validade: z.string().optional()
 };
 
-const createSchema = (tipo: "PJ" | "PF") => {
-  const isPJ = tipo === "PJ";
-  return z
-    .object({
-      ...baseSchema,
-      tipo_pessoa: z.literal(tipo),
-      documento: z.string().min(1, `Informe o ${isPJ ? "CNPJ" : "CPF"}`),
-      nome_legal: z.string().min(2, isPJ ? "Informe a razão social" : "Informe o nome completo")
-    })
-    .superRefine((data, ctx) => {
-      const digits = onlyDigits(data.documento || "");
-      if (isPJ) {
-        if (!validateCNPJ(digits)) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["documento"], message: "CNPJ inválido" });
-        }
-      } else {
-        if (!validateCPF(digits)) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["documento"], message: "CPF inválido" });
-        }
-      }
+const pjSchema = z.object({
+  ...baseSchema,
+  tipo_pessoa: z.literal("PJ"),
+  documento: z.string().min(1, "Informe o CNPJ"),
+  nome_legal: z.string().min(2, "Informe a razão social")
+});
 
-      if (data.ie && !validateIE(data.ie, { allowIsento: true })) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ie"], message: "Inscrição estadual inválida" });
-      }
-    });
-};
+const pfSchema = z.object({
+  ...baseSchema,
+  tipo_pessoa: z.literal("PF"),
+  documento: z.string().min(1, "Informe o CPF"),
+  nome_legal: z.string().min(2, "Informe o nome completo")
+});
 
-const schema = z.discriminatedUnion("tipo_pessoa", [createSchema("PJ"), createSchema("PF")]);
+const schema = z.discriminatedUnion("tipo_pessoa", [pjSchema, pfSchema]).superRefine((data, ctx) => {
+  const digits = onlyDigits(data.documento || "");
+
+  if (data.tipo_pessoa === "PJ") {
+    if (!validateCNPJ(digits)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["documento"], message: "CNPJ inválido" });
+    }
+  } else {
+    if (!validateCPF(digits)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["documento"], message: "CPF inválido" });
+    }
+  }
+
+  if (data.ie && !validateIE(data.ie, { allowIsento: true })) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ie"], message: "Inscrição estadual inválida" });
+  }
+});
 
 type FormValues = z.infer<typeof schema>;
 
@@ -384,9 +387,9 @@ export default function NewPartner() {
     remove: removeTransport
   } = useFieldArray({ control, name: "transportadores" });
 
-  const setFieldIfEmpty = <K extends keyof FormValues>(
-    field: K,
-    value: FormValues[K],
+  const setFieldIfEmpty = <TFieldName extends Path<FormValues>>(
+    field: TFieldName,
+    value: PathValue<FormValues, TFieldName>,
     options?: { shouldValidate?: boolean; shouldDirty?: boolean; shouldTouch?: boolean }
   ) => {
     if (value === undefined || value === null) {
