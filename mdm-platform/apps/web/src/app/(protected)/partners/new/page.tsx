@@ -152,6 +152,9 @@ const natureMatches = (natureza: string, targets: Array<'cliente' | 'fornecedor'
   return targets.some((target) => natureza === target || natureza === 'ambos');
 };
 
+const readOnlyAddressInputClass =
+  "w-full rounded-lg border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm text-zinc-600";
+
 export default function NewPartner() {
   const router = useRouter();
   const [docLoading, setDocLoading] = useState(false);
