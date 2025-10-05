@@ -207,7 +207,7 @@ export default function ChangeRequestPage() {
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<SubmitResult | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>(initialPartner ? "existing" : "existing");
+  const [activeTab, setActiveTab] = useState<TabKey>("form");
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
@@ -393,7 +393,7 @@ export default function ChangeRequestPage() {
     event.preventDefault();
     const trimmed = partnerIdInput.trim();
     setSelectedPartnerId(trimmed);
-    setActiveTab(trimmed ? "existing" : "existing");
+    setActiveTab("form");
     setActionMessage(null);
     setActionError(null);
   };
@@ -405,6 +405,7 @@ export default function ChangeRequestPage() {
     setTypeFilter("all");
     setActionMessage(null);
     setActionError(null);
+    setActiveTab("form");
   };
 
   const handleUpdateStatus = async (request: ChangeRequestItem, newStatus: string) => {
