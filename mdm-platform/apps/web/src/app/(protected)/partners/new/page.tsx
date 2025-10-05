@@ -426,57 +426,30 @@ export default function NewPartner() {
     }
     if (data.endereco) {
       const { cep, logradouro, numero, complemento, bairro, municipio, municipio_ibge, uf } = data.endereco;
-      if (cep) setFieldIfEmpty("cep", cep, { shouldValidate: true });
-      if (logradouro) setFieldIfEmpty("logradouro", logradouro, { shouldValidate: true });
-      if (numero) setFieldIfEmpty("numero", `${numero}`, { shouldValidate: true });
-      if (complemento) setFieldIfEmpty("complemento", complemento);
-      if (bairro) setFieldIfEmpty("bairro", bairro, { shouldValidate: true });
-      if (municipio) setFieldIfEmpty("municipio", municipio.toUpperCase(), { shouldValidate: true });
-      if (municipio_ibge) setFieldIfEmpty("municipio_ibge", `${municipio_ibge}`);
-      if (uf) setFieldIfEmpty("uf", `${uf}`.toUpperCase().slice(0, 2), { shouldValidate: true });
-    }
-  };
-
-  const handleLookupCep = async () => {
-    const cepValue = watch("cep") || "";
-    if (!cepValue.trim()) {
-      setCepError(null);
-      return;
-    }
-
-    if (!validateCEP(cepValue)) {
-      setCepError("Informe um CEP válido para buscar.");
-      return;
-    }
-
-    setCepError(null);
-    setCepLoading(true);
-
-    try {
-      const digits = onlyDigits(cepValue);
-      const response = await axios.get<ViaCepResponse>(`https://viacep.com.br/ws/${digits}/json/`);
-      const data = response.data;
-
-      if (!data || data.erro) {
-        setCepError("CEP não encontrado.");
-        return;
+      if (typeof cep === "string") {
+        setValue("cep", cep, { shouldValidate: true });
       }
-
-      applyLookupData({
-        endereco: {
-          cep: data.cep,
-          logradouro: data.logradouro,
-          complemento: data.complemento,
-          bairro: data.bairro,
-          municipio: data.localidade,
-          municipio_ibge: data.ibge,
-          uf: data.uf
-        }
-      });
-    } catch (error) {
-      setCepError("Não foi possível buscar o CEP.");
-    } finally {
-      setCepLoading(false);
+      if (typeof logradouro === "string") {
+        setValue("logradouro", logradouro.toUpperCase(), { shouldValidate: true });
+      }
+      if (numero !== undefined && numero !== null) {
+        setValue("numero", `${numero}`, { shouldValidate: true });
+      }
+      if (typeof complemento === "string") {
+        setValue("complemento", complemento.toUpperCase());
+      }
+      if (typeof bairro === "string") {
+        setValue("bairro", bairro.toUpperCase(), { shouldValidate: true });
+      }
+      if (typeof municipio === "string") {
+        setValue("municipio", municipio.toUpperCase(), { shouldValidate: true });
+      }
+      if (municipio_ibge !== undefined && municipio_ibge !== null) {
+        setValue("municipio_ibge", `${municipio_ibge}`);
+      }
+      if (typeof uf === "string") {
+        setValue("uf", uf.toUpperCase().slice(0, 2), { shouldValidate: true });
+      }
     }
   };
 
