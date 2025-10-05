@@ -5,6 +5,8 @@ import axios from "axios";
 import { useRouter } from "next/navigation";
 import { Clock3 } from "lucide-react";
 
+import { getStoredUser } from "../../../lib/auth";
+
 type EventLog = {
   id: string;
   eventType: string;
@@ -25,6 +27,7 @@ export default function HistoryPage() {
   const [events, setEvents] = useState<EventLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const storedUser = useMemo(() => getStoredUser(), []);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -35,11 +38,19 @@ export default function HistoryPage() {
       }
 
       try {
+        const actorId = storedUser?.id;
+        const actorEmail = storedUser?.email;
         const response = await axios.get<EventLogResponse>(`${process.env.NEXT_PUBLIC_API_URL}/history`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
+          params: actorId ? { actorId } : undefined
         });
         const data = Array.isArray(response.data) ? response.data : [];
-        setEvents(data);
+        const filteredEvents = actorId
+          ? data.filter((event) => event.actor?.id === actorId)
+          : actorEmail
+            ? data.filter((event) => event.actor?.email === actorEmail)
+            : data;
+        setEvents(filteredEvents);
         setError(null);
       } catch (err: any) {
         if (err?.response?.status === 401) {
@@ -55,7 +66,7 @@ export default function HistoryPage() {
     };
 
     fetchHistory();
-  }, [router]);
+  }, [router, storedUser]);
 
   const groupedEvents = useMemo(() => {
     const groups = new Map<string, EventLog[]>();
@@ -90,7 +101,7 @@ export default function HistoryPage() {
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       ) : events.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-white p-10 text-center text-sm text-zinc-500">
-          Ainda não há eventos registrados.
+          Ainda não há eventos registrados para você.
         </div>
       ) : (
         <section className="flex flex-col gap-4">

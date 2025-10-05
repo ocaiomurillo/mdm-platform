@@ -17,7 +17,7 @@ export default defineConfig({
     environment: "node",
     include: ["**/*.spec.ts", "**/*.spec.tsx"],
     environmentMatchGlobs: [["apps/web/**", "jsdom"]],
-    setupFiles: ["./vitest.setup.ts"],
+    setupFiles: [resolveAlias("vitest.setup.ts")],
     coverage: {
       reporter: ["text", "html"],
       enabled: false
