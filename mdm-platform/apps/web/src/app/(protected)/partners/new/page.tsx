@@ -1,7 +1,12 @@
 ﻿"use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { useForm, useFieldArray, type Path, type PathValue } from "react-hook-form";
+import {
+  useForm,
+  useFieldArray,
+  type FieldPath,
+  type FieldPathValue
+} from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
@@ -30,7 +35,7 @@ const transportSchema = z.object({
   sap_bp: z.string().min(1, "Informe o código BP")
 });
 
-const baseSchema = {
+const baseSchemaFields = {
   natureza: z.enum(["cliente", "fornecedor", "ambos"]),
   nome_fantasia: z.string().optional(),
   contato_nome: z.string().min(2, "Informe o responsável"),
@@ -39,7 +44,12 @@ const baseSchema = {
   telefone: z.string().optional(),
   celular: z.string().optional(),
   comunicacao_emails: z.array(emailSchema).min(1, "Inclua ao menos um email"),
-  ie: z.string().optional(),
+  ie: z
+    .string()
+    .optional()
+    .refine((value) => !value || validateIE(value, { allowIsento: true }), {
+      message: "Inscrição estadual inválida"
+    }),
   im: z.string().optional(),
   suframa: z.string().optional(),
   regime_tributario: z.string().optional(),
@@ -55,11 +65,8 @@ const baseSchema = {
   municipio_ibge: z
     .string()
     .optional()
-    .superRefine((value, ctx) => {
-      if (!value || !value.trim()) return;
-      if (!validateIbgeCode(value)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Código IBGE inválido" });
-      }
+    .refine((value) => !value || !value.trim() || validateIbgeCode(value), {
+      message: "Código IBGE inválido"
     }),
   uf: z.string().length(2, "Informe apenas a sigla da UF"),
   banks: z.array(bankSchema).min(1, "Inclua ao menos uma conta"),
@@ -80,32 +87,24 @@ const baseSchema = {
   credito_validade: z.string().optional()
 };
 
-const pjSchema = z.object({
-  ...baseSchema,
-  tipo_pessoa: z.literal("PJ"),
-  documento: z.string().min(1, "Informe o CNPJ"),
-  nome_legal: z.string().min(2, "Informe a razão social")
-});
-
-const pfSchema = z.object({
-  ...baseSchema,
-  tipo_pessoa: z.literal("PF"),
-  documento: z.string().min(1, "Informe o CPF"),
-  nome_legal: z.string().min(2, "Informe o nome completo")
-});
-
-const schema = z.discriminatedUnion("tipo_pessoa", [pjSchema, pfSchema]).superRefine((data, ctx) => {
-  const digits = onlyDigits(data.documento || "");
-
-  if (data.tipo_pessoa === "PJ") {
-    if (!validateCNPJ(digits)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["documento"], message: "CNPJ inválido" });
-    }
-  } else {
-    if (!validateCPF(digits)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["documento"], message: "CPF inválido" });
-    }
-  }
+const createSchema = (tipo: "PJ" | "PF") => {
+  const isPJ = tipo === "PJ";
+  return z
+    .object({
+      ...baseSchemaFields,
+      tipo_pessoa: z.literal(tipo),
+      documento: z
+        .string()
+        .min(1, `Informe o ${isPJ ? "CNPJ" : "CPF"}`)
+        .refine((value) => {
+          const digits = onlyDigits(value || "");
+          return isPJ ? validateCNPJ(digits) : validateCPF(digits);
+        }, {
+          message: isPJ ? "CNPJ inválido" : "CPF inválido"
+        }),
+      nome_legal: z.string().min(2, isPJ ? "Informe a razão social" : "Informe o nome completo")
+    });
+};
 
   if (data.ie && !validateIE(data.ie, { allowIsento: true })) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ie"], message: "Inscrição estadual inválida" });
@@ -387,10 +386,10 @@ export default function NewPartner() {
     remove: removeTransport
   } = useFieldArray({ control, name: "transportadores" });
 
-  const setFieldIfEmpty = <TFieldName extends Path<FormValues>>(
-    field: TFieldName,
-    value: PathValue<FormValues, TFieldName>,
-    options?: { shouldValidate?: boolean; shouldDirty?: boolean; shouldTouch?: boolean }
+  const setFieldIfEmpty = <K extends FieldPath<FormValues>>(
+    field: K,
+    value: FieldPathValue<FormValues, K>,
+    options?: Parameters<typeof setValue>[2]
   ) => {
     if (value === undefined || value === null) {
       return;
@@ -404,7 +403,7 @@ export default function NewPartner() {
     const isEmpty =
       currentValue === undefined ||
       currentValue === null ||
-      (typeof currentValue === "string" ? !currentValue.trim() : false);
+      (typeof currentValue === "string" && currentValue.trim().length === 0);
 
     if (isEmpty) {
       setValue(field, value, options);
@@ -692,7 +691,7 @@ export default function NewPartner() {
   };
 
   const renderError = (fieldPath: keyof FormValues | string) => {
-    const segments = fieldPath.split('.') as any;
+    const segments = String(fieldPath).split(".") as Array<string>;
     let current: any = errors;
     for (const segment of segments) {
       if (!current) break;
