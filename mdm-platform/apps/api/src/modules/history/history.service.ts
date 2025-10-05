@@ -1,5 +1,7 @@
 import { Injectable } from "@nestjs/common";
 
+import { HistoryListQueryDto } from "./dto/history-query.dto";
+
 type Actor = {
   id: string;
   name: string;
@@ -68,7 +70,18 @@ export class HistoryService {
     }
   ];
 
-  list(): EventLog[] {
-    return this.events;
+  list(filters: HistoryListQueryDto = {}): EventLog[] {
+    const { actorId, actorEmail } = filters;
+
+    if (!actorId && !actorEmail) {
+      return this.events;
+    }
+
+    return this.events.filter((event) => {
+      if (actorId) {
+        return event.actor?.id === actorId;
+      }
+      return event.actor?.email === actorEmail;
+    });
   }
 }
