@@ -145,7 +145,7 @@ const formatValueForDisplay = (value: unknown) => {
     try {
       return JSON.stringify(value, null, 2);
     } catch (error) {
-      return String(value);
+      return String(error);
     }
   }
   return String(value);
@@ -171,7 +171,7 @@ const convertToInputValue = (value: unknown) => {
   try {
     return JSON.stringify(value);
   } catch (error) {
-    return String(value);
+    return String(error);
   }
 };
 
