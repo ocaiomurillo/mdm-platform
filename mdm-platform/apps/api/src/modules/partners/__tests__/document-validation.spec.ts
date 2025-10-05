@@ -85,6 +85,7 @@ describe("PartnersService lookup", () => {
   const auditJobRepo = { findOne: vi.fn(), update: vi.fn() };
   const auditLogRepo = { save: vi.fn() };
   const noteRepo = { find: vi.fn(), create: vi.fn(), save: vi.fn() };
+  const draftRepo = { create: vi.fn(), save: vi.fn(), find: vi.fn(), findOne: vi.fn(), delete: vi.fn() };
   const sapIntegration = {
     integratePartner: vi.fn().mockResolvedValue({ segments: [], completed: true, updates: {} }),
     retry: vi.fn().mockResolvedValue({ segments: [], completed: true, updates: {} }),
@@ -99,6 +100,11 @@ describe("PartnersService lookup", () => {
     noteRepo.find.mockReset();
     noteRepo.create.mockReset();
     noteRepo.save.mockReset();
+    draftRepo.create.mockReset();
+    draftRepo.save.mockReset();
+    draftRepo.find.mockReset();
+    draftRepo.findOne.mockReset();
+    draftRepo.delete.mockReset();
     sapIntegration.integratePartner.mockReset();
     sapIntegration.retry.mockReset();
     sapIntegration.markSegmentsAsError.mockClear();
@@ -108,6 +114,7 @@ describe("PartnersService lookup", () => {
       auditJobRepo as any,
       auditLogRepo as any,
       noteRepo as any,
+      draftRepo as any,
       sapIntegration as any
     );
   });

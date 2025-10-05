@@ -30,6 +30,13 @@ describe("PartnersService audit processing", () => {
     create: vi.fn(),
     save: vi.fn()
   };
+  const draftRepo = {
+    create: vi.fn(),
+    save: vi.fn(),
+    find: vi.fn(),
+    findOne: vi.fn(),
+    delete: vi.fn()
+  };
   const sapIntegration = {
     integratePartner: vi.fn(),
     retry: vi.fn(),
@@ -50,6 +57,11 @@ describe("PartnersService audit processing", () => {
     noteRepo.find.mockReset();
     noteRepo.create.mockReset();
     noteRepo.save.mockReset();
+    draftRepo.create.mockReset();
+    draftRepo.save.mockReset();
+    draftRepo.find.mockReset();
+    draftRepo.findOne.mockReset();
+    draftRepo.delete.mockReset();
 
     sapIntegration.integratePartner.mockReset();
     sapIntegration.retry.mockReset();
@@ -61,6 +73,7 @@ describe("PartnersService audit processing", () => {
       auditJobRepo as any,
       auditLogRepo as any,
       noteRepo as any,
+      draftRepo as any,
       sapIntegration as any
     );
   });
