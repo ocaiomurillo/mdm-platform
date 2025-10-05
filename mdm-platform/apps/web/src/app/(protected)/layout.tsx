@@ -1,7 +1,7 @@
 ﻿"use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, Users, PlusSquare, LogOut, Bell, UserCog, Clock3 } from "lucide-react";
+import { Home, Users, PlusSquare, LogOut, Bell, UserCog, Clock3, ShieldCheck } from "lucide-react";
 import { PropsWithChildren, useEffect, useMemo, useState } from "react";
 import { jwtDecode } from "jwt-decode";
 import { getStoredUser, storeUser, StoredUser } from "../../lib/auth";
@@ -20,6 +20,7 @@ const navItems = [
   { href: "/partners", label: "Parceiros", icon: Users },
   { href: "/partners/new", label: "Novo", icon: PlusSquare },
   { href: "/notifications", label: "Notificações", icon: Bell },
+  { href: "/audit", label: "Auditoria", icon: ShieldCheck },
   { href: "/user-maintenance", label: "Usuários", icon: UserCog },
   { href: "/history", label: "Histórico", icon: Clock3 }
 ];
