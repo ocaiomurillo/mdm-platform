@@ -209,6 +209,9 @@ export default function NewPartner() {
   const banks = formValues?.banks ?? [];
   const transporters = formValues?.transportadores ?? [];
 
+  const requiresFornecedor = useMemo(() => natureMatches(natureza, ["fornecedor"]), [natureza]);
+  const requiresCliente = useMemo(() => natureMatches(natureza, ["cliente"]), [natureza]);
+
   const hasAnyError = (paths: string[]) => paths.some((path) => Boolean(getErrorAtPath(path)));
 
   const timelineSteps = useMemo(() => {
@@ -377,9 +380,6 @@ export default function NewPartner() {
     append: appendTransport,
     remove: removeTransport
   } = useFieldArray({ control, name: "transportadores" });
-
-  const requiresFornecedor = useMemo(() => natureMatches(natureza, ['fornecedor']), [natureza]);
-  const requiresCliente = useMemo(() => natureMatches(natureza, ['cliente']), [natureza]);
 
   const setFieldIfEmpty = <K extends keyof FormValues>(
     field: K,
