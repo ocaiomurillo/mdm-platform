@@ -130,6 +130,9 @@ type LookupResult = {
   inscricao_estadual?: string;
 };
 
+const readOnlyAddressInputClass =
+  "w-full rounded-lg border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm text-zinc-500 cursor-not-allowed focus:border-zinc-200 focus:ring-0";
+
 const natureMatches = (natureza: string, targets: Array<'cliente' | 'fornecedor'>) => {
   return targets.some((target) => natureza === target || natureza === 'ambos');
 };
@@ -759,7 +762,13 @@ export default function NewPartner() {
                 </div>
                 <div className="md:col-span-4">
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Logradouro</label>
-                  <input {...register("logradouro")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Rua, avenida..." />
+                  <input
+                    {...register("logradouro")}
+                    readOnly
+                    aria-readonly="true"
+                    className={readOnlyAddressInputClass}
+                    placeholder="Rua, avenida..."
+                  />
                   {renderError("logradouro")}
                 </div>
               </div>
@@ -775,24 +784,46 @@ export default function NewPartner() {
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Bairro</label>
-                  <input {...register("bairro")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                  <input
+                    {...register("bairro")}
+                    readOnly
+                    aria-readonly="true"
+                    className={readOnlyAddressInputClass}
+                  />
                   {renderError("bairro")}
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">UF</label>
-                  <input {...register("uf")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm uppercase" placeholder="UF" />
+                  <input
+                    {...register("uf")}
+                    readOnly
+                    aria-readonly="true"
+                    className={`${readOnlyAddressInputClass} uppercase`}
+                    placeholder="UF"
+                  />
                   {renderError("uf")}
                 </div>
               </div>
               <div className="mt-4 grid gap-4 md:grid-cols-3">
                 <div>
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Município</label>
-                  <input {...register("municipio")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                  <input
+                    {...register("municipio")}
+                    readOnly
+                    aria-readonly="true"
+                    className={readOnlyAddressInputClass}
+                  />
                   {renderError("municipio")}
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Código IBGE</label>
-                  <input {...register("municipio_ibge")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
+                  <input
+                    {...register("municipio_ibge")}
+                    readOnly
+                    aria-readonly="true"
+                    className={readOnlyAddressInputClass}
+                    placeholder="Opcional"
+                  />
                   {renderError("municipio_ibge")}
                 </div>
               </div>
