@@ -1,6 +1,6 @@
 ﻿"use client";
-import { useRouter } from "next/navigation";
-import React, { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   useForm,
   useFieldArray,
@@ -161,18 +161,27 @@ const natureMatches = (natureza: string, targets: Array<'cliente' | 'fornecedor'
   return targets.some((target) => natureza === target || natureza === 'ambos');
 };
 
+const DRAFT_STORAGE_KEY = "mdm-partner-draft-id";
+
 export default function NewPartner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [cepLoading, setCepLoading] = useState(false);
   const [cepError, setCepError] = useState<string | null>(null);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [draftSuccess, setDraftSuccess] = useState<string | null>(null);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
 
   const {
     register,
     control,
     handleSubmit,
+    reset,
     setValue,
     watch,
     formState: { errors, isSubmitting, dirtyFields }
@@ -190,6 +199,116 @@ export default function NewPartner() {
   const natureza = watch("natureza");
   const tipoPessoa = watch("tipo_pessoa");
   const formValues = watch();
+  const draftParam = searchParams.get("draftId");
+
+  const applyDraftPayload = useCallback(
+    (payload: Partial<FormValues>) => {
+      if (!payload) return;
+      const emailEntries = Array.isArray((payload as any).comunicacao_emails)
+        ? ((payload as any).comunicacao_emails as FormValues["comunicacao_emails"])
+        : undefined;
+      const bankEntries = Array.isArray((payload as any).banks)
+        ? ((payload as any).banks as FormValues["banks"])
+        : undefined;
+      const transportEntries = Array.isArray((payload as any).transportadores)
+        ? ((payload as any).transportadores as FormValues["transportadores"])
+        : undefined;
+
+      reset(
+        {
+          tipo_pessoa: (payload.tipo_pessoa as FormValues["tipo_pessoa"]) ?? "PJ",
+          natureza: (payload.natureza as FormValues["natureza"]) ?? "cliente",
+          comunicacao_emails:
+            emailEntries && emailEntries.length
+              ? emailEntries
+              : [{ endereco: "", padrao: true }],
+          banks:
+            bankEntries && bankEntries.length
+              ? bankEntries
+              : [{ banco: "", agencia: "", conta: "", pix: "" }],
+          transportadores: transportEntries ?? [],
+          ...payload
+        } as FormValues,
+        { keepDefaultValues: false }
+      );
+    },
+    [reset]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (draftParam) {
+      setCurrentDraftId(draftParam);
+      localStorage.setItem(DRAFT_STORAGE_KEY, draftParam);
+      return;
+    }
+    const stored = localStorage.getItem(DRAFT_STORAGE_KEY);
+    if (stored) {
+      setCurrentDraftId(stored);
+    } else {
+      setCurrentDraftId(null);
+    }
+  }, [draftParam]);
+
+  useEffect(() => {
+    if (!currentDraftId) {
+      setDraftLoading(false);
+      setDraftError(null);
+      return;
+    }
+    if (typeof window === "undefined") return;
+    const token = localStorage.getItem("mdmToken");
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    let cancelled = false;
+    const fetchDraft = async () => {
+      setDraftLoading(true);
+      setDraftError(null);
+      try {
+        const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/partners/drafts`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const drafts = Array.isArray(response.data) ? response.data : [];
+        const matched = drafts.find((entry: any) => entry?.id === currentDraftId);
+        if (!matched) {
+          if (!cancelled) {
+            setDraftError("Rascunho não encontrado ou indisponível.");
+          }
+          return;
+        }
+        if (!cancelled && matched.payload) {
+          applyDraftPayload(matched.payload as Partial<FormValues>);
+        }
+      } catch (error: any) {
+        if (error?.response?.status === 401) {
+          localStorage.removeItem("mdmToken");
+          router.replace("/login");
+          return;
+        }
+        const message = error?.response?.data?.message;
+        if (!cancelled) {
+          setDraftError(typeof message === "string" ? message : "Não foi possível carregar o rascunho.");
+        }
+      } finally {
+        if (!cancelled) {
+          setDraftLoading(false);
+        }
+      }
+    };
+    fetchDraft();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyDraftPayload, currentDraftId, router]);
+
+  useEffect(() => {
+    if (!draftSuccess) return;
+    if (process.env.NODE_ENV === "test") return;
+    const timeout = window.setTimeout(() => setDraftSuccess(null), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [draftSuccess]);
 
   const natureLabels: Record<FormValues["natureza"], string> = {
     cliente: "Cliente",
@@ -610,6 +729,8 @@ export default function NewPartner() {
 
   const onSubmit = async (values: FormValues) => {
     setSubmitError(null);
+    setDraftSuccess(null);
+    setDraftError(null);
     const token = localStorage.getItem("mdmToken");
     if (!token) {
       setSubmitError("Sessão expirada. Faça login novamente.");
@@ -751,6 +872,56 @@ export default function NewPartner() {
     }
   };
 
+  const handleSaveDraft = async () => {
+    const token = localStorage.getItem("mdmToken");
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    setDraftSaving(true);
+    setDraftError(null);
+    setDraftSuccess(null);
+    try {
+      const payload = watch();
+      const headers = { Authorization: `Bearer ${token}` };
+      let response;
+      if (currentDraftId) {
+        response = await axios.patch(
+          `${process.env.NEXT_PUBLIC_API_URL}/partners/drafts/${currentDraftId}`,
+          { payload },
+          { headers }
+        );
+      } else {
+        response = await axios.post(
+          `${process.env.NEXT_PUBLIC_API_URL}/partners/drafts`,
+          { payload },
+          { headers }
+        );
+      }
+      const saved = response?.data;
+      if (saved?.id) {
+        setCurrentDraftId(saved.id);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(DRAFT_STORAGE_KEY, saved.id);
+        }
+        if (!currentDraftId) {
+          router.replace(`/partners/new?draftId=${saved.id}`);
+        }
+      }
+      setDraftSuccess("Rascunho salvo com sucesso.");
+    } catch (error: any) {
+      if (error?.response?.status === 401) {
+        localStorage.removeItem("mdmToken");
+        router.replace("/login");
+        return;
+      }
+      const message = error?.response?.data?.message;
+      setDraftError(typeof message === "string" ? message : "Não foi possível salvar o rascunho.");
+    } finally {
+      setDraftSaving(false);
+    }
+  };
+
   const renderError = (fieldPath: keyof FormValues | string) => {
     const segments = String(fieldPath).split(".") as Array<string>;
     let current: any = errors;
@@ -771,6 +942,12 @@ export default function NewPartner() {
           <h1 className="text-2xl font-semibold text-zinc-900">Novo Parceiro</h1>
           <p className="text-sm text-zinc-500">Preencha todas as informações necessárias para integrar o parceiro ao SAP.</p>
         </header>
+
+        {draftLoading && (
+          <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+            Carregando rascunho salvo...
+          </div>
+        )}
 
         <form
           onSubmit={handleSubmit(onSubmit)}
@@ -1237,14 +1414,26 @@ export default function NewPartner() {
             </section>
 
             {submitError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{submitError}</div>}
+            {draftError && <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">{draftError}</div>}
+            {draftSuccess && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{draftSuccess}</div>
+            )}
 
-            <div className="flex justify-end gap-3">
+            <div className="flex flex-wrap justify-end gap-3">
               <button
                 type="button"
                 onClick={() => router.back()}
                 className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
               >
                 Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={draftSaving || draftLoading || isSubmitting}
+                className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors disabled:cursor-not-allowed disabled:opacity-60 hover:border-zinc-300 hover:bg-zinc-50"
+              >
+                {draftSaving ? "Salvando..." : "Salvar esboço"}
               </button>
               <button
                 type="submit"
