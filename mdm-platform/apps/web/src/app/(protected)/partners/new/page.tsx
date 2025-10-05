@@ -130,6 +130,17 @@ type LookupResult = {
   inscricao_estadual?: string;
 };
 
+type ViaCepResponse = {
+  cep?: string;
+  logradouro?: string;
+  complemento?: string;
+  bairro?: string;
+  localidade?: string;
+  uf?: string;
+  ibge?: string;
+  erro?: boolean;
+};
+
 const natureMatches = (natureza: string, targets: Array<'cliente' | 'fornecedor'>) => {
   return targets.some((target) => natureza === target || natureza === 'ambos');
 };
@@ -139,6 +150,8 @@ export default function NewPartner() {
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [cepLoading, setCepLoading] = useState(false);
+  const [cepError, setCepError] = useState<string | null>(null);
 
   const {
     register,
@@ -361,37 +374,55 @@ export default function NewPartner() {
   const requiresFornecedor = useMemo(() => natureMatches(natureza, ['fornecedor']), [natureza]);
   const requiresCliente = useMemo(() => natureMatches(natureza, ['cliente']), [natureza]);
 
-  useEffect(() => {
-    if (tipoPessoa === "PF") {
-      setValue("ie", undefined);
-      setValue("im", undefined);
-      setValue("regime_tributario", undefined);
+  const setFieldIfEmpty = <K extends keyof FormValues>(
+    field: K,
+    value: FormValues[K],
+    options?: { shouldValidate?: boolean; shouldDirty?: boolean; shouldTouch?: boolean }
+  ) => {
+    if (value === undefined || value === null) {
+      return;
     }
-  }, [setValue, tipoPessoa]);
+
+    if (typeof value === "string" && !value.trim()) {
+      return;
+    }
+
+    const currentValue = watch(field);
+    const isEmpty =
+      currentValue === undefined ||
+      currentValue === null ||
+      (typeof currentValue === "string" ? !currentValue.trim() : false);
+
+    if (isEmpty) {
+      setValue(field, value, options);
+    }
+  };
 
   const applyLookupData = (data: LookupResult) => {
     if (!data) return;
     if (data.nome) {
-      setValue("nome_legal", data.nome, { shouldValidate: true });
+      setFieldIfEmpty("nome_legal", data.nome, { shouldValidate: true });
       if (tipoPessoa === "PF") {
-        setValue("contato_nome", data.nome, { shouldValidate: true });
+        setFieldIfEmpty("contato_nome", data.nome, { shouldValidate: true });
       }
     }
     if (data.nome_social) {
       setValue("nome_fantasia", data.nome_social, { shouldValidate: false });
     }
     if (data.email) {
-      replaceEmails([{ endereco: data.email, padrao: true }]);
-      setValue("contato_email", data.email, { shouldValidate: true });
+      const emailEntries = watch("comunicacao_emails");
+      const hasEmail = emailEntries?.some((entry) => entry?.endereco && entry.endereco.trim());
+      if (!hasEmail) {
+        replaceEmails([{ endereco: data.email, padrao: true }]);
+      }
+      setFieldIfEmpty("contato_email", data.email, { shouldValidate: true });
     }
     if (data.telefone) {
-      setValue("telefone", data.telefone);
-      if (!watch("contato_fone")) {
-        setValue("contato_fone", data.telefone);
-      }
+      setFieldIfEmpty("telefone", data.telefone);
+      setFieldIfEmpty("contato_fone", data.telefone);
     }
-    if (tipoPessoa === "PJ" && data.inscricao_estadual) {
-      setValue("ie", data.inscricao_estadual);
+    if (data.inscricao_estadual) {
+      setFieldIfEmpty("ie", data.inscricao_estadual);
     }
     if (data.endereco) {
       const { cep, logradouro, numero, complemento, bairro, municipio, municipio_ibge, uf } = data.endereco;
@@ -814,19 +845,101 @@ export default function NewPartner() {
               </div>
             </section>
 
-            <section id="contato" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Contato</h2>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Responsável</label>
-                  <input {...register("contato_nome")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Nome completo" />
-                  {renderError("contato_nome")}
+          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Endereço fiscal</h2>
+            <div className="mt-4 grid gap-4 md:grid-cols-6">
+              <div className="md:col-span-3">
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">CEP</label>
+                <div className="flex gap-2">
+                  <input
+                    {...register("cep")}
+                    onBlur={handleLookupCep}
+                    placeholder="00000-000"
+                    className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleLookupCep}
+                    disabled={cepLoading}
+                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors disabled:cursor-not-allowed disabled:opacity-60 hover:border-zinc-300 hover:bg-zinc-50"
+                  >
+                    {cepLoading ? "Buscando..." : "Buscar CEP"}
+                  </button>
                 </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Email do responsável</label>
-                  <input {...register("contato_email")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="responsavel@empresa.com" />
-                  {renderError("contato_email")}
-                </div>
+                {renderError("cep")}
+                {cepError && <p className="mt-1 text-sm text-red-600">{cepError}</p>}
+              </div>
+              <div className="md:col-span-3">
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Logradouro</label>
+                <input
+                  {...register("logradouro")}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder="Rua, avenida..."
+                />
+                {renderError("logradouro")}
+              </div>
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-6">
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Número</label>
+                <input
+                  {...register("numero")}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder="000"
+                />
+                {renderError("numero")}
+              </div>
+              <div className="md:col-span-4">
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Complemento</label>
+                <input
+                  {...register("complemento")}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder="Apartamento, sala..."
+                />
+              </div>
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-6">
+              <div className="md:col-span-3">
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Bairro</label>
+                <input
+                  {...register("bairro")}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder="Bairro"
+                />
+                {renderError("bairro")}
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Município</label>
+                <input
+                  {...register("municipio")}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder="Cidade"
+                />
+                {renderError("municipio")}
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">UF</label>
+                <input
+                  {...register("uf")}
+                  maxLength={2}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm uppercase"
+                  placeholder="UF"
+                />
+                {renderError("uf")}
+              </div>
+            </div>
+            <input type="hidden" {...register("municipio_ibge")} />
+            {renderError("municipio_ibge")}
+          </section>
+
+          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Comunicação</h2>
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone</label>
+                <input {...register("telefone")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 0000-0000" />
               </div>
               <div className="mt-4 grid gap-4 md:grid-cols-3">
                 <div>
