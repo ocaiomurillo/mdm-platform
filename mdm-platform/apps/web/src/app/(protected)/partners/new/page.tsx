@@ -1,6 +1,6 @@
 ﻿"use client";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   useForm,
   useFieldArray,
@@ -19,8 +19,11 @@ import {
   validateIE
 } from "@mdm/utils";
 
-const emailSchema = z.object({
-  endereco: z.string().email("Email inválido"),
+const contactSchema = z.object({
+  nome: z.string().min(2, "Informe o nome"),
+  email: z.string().email("Email inválido"),
+  telefone: z.string().optional(),
+  celular: z.string().optional(),
   padrao: z.boolean().optional()
 });
 
@@ -38,12 +41,25 @@ const transportSchema = z.object({
 const baseSchemaFields = {
   natureza: z.enum(["cliente", "fornecedor", "ambos"]),
   nome_fantasia: z.string().optional(),
-  contato_nome: z.string().min(2, "Informe o responsável"),
-  contato_email: z.string().email("Email inválido"),
-  contato_fone: z.string().optional(),
-  telefone: z.string().optional(),
-  celular: z.string().optional(),
-  comunicacao_emails: z.array(emailSchema).min(1, "Inclua ao menos um email"),
+  contatos: z
+    .array(contactSchema)
+    .min(1, "Adicione ao menos um contato")
+    .superRefine((contatos, ctx) => {
+      const defaultCount = contatos.filter((contact) => contact?.padrao).length;
+      if (defaultCount === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Defina ao menos um contato como padrão",
+          path: ["contatos"]
+        });
+      } else if (defaultCount > 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Apenas um contato pode ser padrão",
+          path: ["contatos"]
+        });
+      }
+    }),
   ie: z
     .string()
     .optional()
@@ -106,12 +122,10 @@ const createSchema = (tipo: "PJ" | "PF") => {
     });
 };
 
-  if (data.ie && !validateIE(data.ie, { allowIsento: true })) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ie"], message: "Inscrição estadual inválida" });
-  }
-});
+const schema = z.discriminatedUnion("tipo_pessoa", [createSchema("PJ"), createSchema("PF")]);
 
 type FormValues = z.infer<typeof schema>;
+type ContactFormValue = FormValues["contatos"][number];
 
 type LookupResult = {
   nome?: string;
@@ -154,9 +168,6 @@ const natureMatches = (natureza: string, targets: Array<'cliente' | 'fornecedor'
   return targets.some((target) => natureza === target || natureza === 'ambos');
 };
 
-const readOnlyAddressInputClass =
-  "w-full rounded-lg border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm text-zinc-600";
-
 export default function NewPartner() {
   const router = useRouter();
   const [docLoading, setDocLoading] = useState(false);
@@ -164,6 +175,19 @@ export default function NewPartner() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [cepLoading, setCepLoading] = useState(false);
   const [cepError, setCepError] = useState<string | null>(null);
+  const [lastFetchedCep, setLastFetchedCep] = useState<string | null>(null);
+  const [contactModalState, setContactModalState] = useState<{ open: boolean; index: number | null }>({
+    open: false,
+    index: null
+  });
+  const [contactDraft, setContactDraft] = useState<ContactFormValue>({
+    nome: "",
+    email: "",
+    telefone: "",
+    celular: "",
+    padrao: true
+  });
+  const [contactModalError, setContactModalError] = useState<string | null>(null);
 
   const {
     register,
@@ -171,13 +195,14 @@ export default function NewPartner() {
     handleSubmit,
     setValue,
     watch,
+    getValues,
     formState: { errors, isSubmitting }
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       tipo_pessoa: "PJ",
       natureza: "cliente",
-      comunicacao_emails: [{ endereco: "", padrao: true }],
+      contatos: [{ nome: "", email: "", telefone: "", celular: "", padrao: true }],
       banks: [{ banco: "", agencia: "", conta: "", pix: "" }],
       transportadores: []
     }
@@ -185,6 +210,7 @@ export default function NewPartner() {
 
   const natureza = watch("natureza");
   const tipoPessoa = watch("tipo_pessoa");
+  const cepValue = watch("cep");
   const formValues = watch();
 
   const natureLabels: Record<FormValues["natureza"], string> = {
@@ -210,9 +236,122 @@ export default function NewPartner() {
     return Boolean(value);
   };
 
-  const emails = formValues?.comunicacao_emails ?? [];
+  const contacts = formValues?.contatos ?? [];
   const banks = formValues?.banks ?? [];
   const transporters = formValues?.transportadores ?? [];
+
+  const closeContactModal = () => {
+    setContactModalState({ open: false, index: null });
+    setContactModalError(null);
+  };
+
+  const openNewContactModal = () => {
+    setContactDraft({ nome: "", email: "", telefone: "", celular: "", padrao: contacts.length === 0 });
+    setContactModalState({ open: true, index: null });
+    setContactModalError(null);
+  };
+
+  const openEditContactModal = (index: number) => {
+    const contact = contacts[index];
+    if (!contact) {
+      openNewContactModal();
+      return;
+    }
+    setContactDraft({
+      nome: contact.nome ?? "",
+      email: contact.email ?? "",
+      telefone: contact.telefone ?? "",
+      celular: contact.celular ?? "",
+      padrao: contact.padrao ?? false
+    });
+    setContactModalState({ open: true, index });
+    setContactModalError(null);
+  };
+
+  const handleContactDraftChange = (field: keyof ContactFormValue, value: string | boolean) => {
+    setContactDraft((prev) => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const normalizePadrao = (list: ContactFormValue[]): ContactFormValue[] => {
+    if (!list.length) return list;
+    if (list.some((contact) => contact?.padrao)) {
+      return list;
+    }
+    const [first, ...rest] = list;
+    return [{ ...first, padrao: true }, ...rest.map((contact) => ({ ...contact, padrao: contact.padrao ?? false }))];
+  };
+
+  const handleSaveContact = () => {
+    const trimmedDraft: ContactFormValue = {
+      nome: contactDraft.nome?.trim() ?? "",
+      email: contactDraft.email?.trim() ?? "",
+      telefone: contactDraft.telefone?.trim() ?? "",
+      celular: contactDraft.celular?.trim() ?? "",
+      padrao: contactDraft.padrao ?? false
+    };
+
+    const validation = contactSchema.safeParse({
+      ...trimmedDraft,
+      telefone: trimmedDraft.telefone || undefined,
+      celular: trimmedDraft.celular || undefined
+    });
+
+    if (!validation.success) {
+      setContactModalError(validation.error.issues[0]?.message ?? "Preencha os campos obrigatórios do contato.");
+      return;
+    }
+
+    let nextContacts: ContactFormValue[];
+    if (contactModalState.index === null) {
+      nextContacts = contacts.map((contact) => ({ ...contact, padrao: trimmedDraft.padrao ? false : contact.padrao ?? false }));
+      nextContacts.push({
+        nome: trimmedDraft.nome,
+        email: trimmedDraft.email,
+        telefone: trimmedDraft.telefone,
+        celular: trimmedDraft.celular,
+        padrao: trimmedDraft.padrao || !nextContacts.length
+      });
+    } else {
+      nextContacts = contacts.map((contact, index) => {
+        if (index === contactModalState.index) {
+          return {
+            nome: trimmedDraft.nome,
+            email: trimmedDraft.email,
+            telefone: trimmedDraft.telefone,
+            celular: trimmedDraft.celular,
+            padrao: trimmedDraft.padrao
+          };
+        }
+        return {
+          ...contact,
+          padrao: trimmedDraft.padrao ? false : contact.padrao ?? false
+        };
+      });
+    }
+
+    nextContacts = normalizePadrao(nextContacts);
+    setValue("contatos", nextContacts, { shouldValidate: true });
+    closeContactModal();
+  };
+
+  const handleRemoveContact = (index: number) => {
+    if (contacts.length <= 1) {
+      return;
+    }
+    const nextContacts = normalizePadrao(contacts.filter((_, contactIndex) => contactIndex !== index));
+    setValue("contatos", nextContacts, { shouldValidate: true });
+  };
+
+  const handleSetDefaultContact = (index: number) => {
+    const nextContacts = contacts.map((contact, contactIndex) => ({
+      ...contact,
+      padrao: contactIndex === index
+    }));
+    setValue("contatos", normalizePadrao(nextContacts), { shouldValidate: true });
+  };
 
   const requiresFornecedor = useMemo(() => natureMatches(natureza, ["fornecedor"]), [natureza]);
   const requiresCliente = useMemo(() => natureMatches(natureza, ["cliente"]), [natureza]);
@@ -232,16 +371,11 @@ export default function NewPartner() {
         isFilledString((formValues as any)?.[field])
       ) && !hasAnyError(["cep", "logradouro", "numero", "bairro", "municipio", "uf", "municipio_ibge"]);
 
-    const contactEmailsComplete =
-      emails.length > 0 &&
-      emails.every((email) => isFilledString(email?.endereco)) &&
-      !hasAnyError(["comunicacao_emails"]);
-
     const contactComplete =
-      isFilledString(formValues?.contato_nome) &&
-      isFilledString(formValues?.contato_email) &&
-      contactEmailsComplete &&
-      !hasAnyError(["contato_nome", "contato_email"]);
+      contacts.length > 0 &&
+      contacts.every((contact) => isFilledString(contact?.nome) && isFilledString(contact?.email)) &&
+      contacts.some((contact) => contact?.padrao) &&
+      !hasAnyError(["contatos"]);
 
     const financeComplete =
       banks.length > 0 &&
@@ -352,7 +486,7 @@ export default function NewPartner() {
     return steps;
   }, [
     banks,
-    emails,
+    contacts,
     errors,
     formValues,
     natureza,
@@ -366,13 +500,6 @@ export default function NewPartner() {
     () => timelineSteps.find((step) => !step.completed)?.id ?? timelineSteps[timelineSteps.length - 1]?.id,
     [timelineSteps]
   );
-
-  const {
-    fields: emailFields,
-    append: appendEmail,
-    remove: removeEmail,
-    replace: replaceEmails
-  } = useFieldArray({ control, name: "comunicacao_emails" });
 
   const {
     fields: bankFields,
@@ -412,26 +539,70 @@ export default function NewPartner() {
 
   const applyLookupData = (data: LookupResult) => {
     if (!data) return;
+    const ensureContacts = () => {
+      const current = (watch("contatos") ?? []) as FormValues["contatos"];
+      if (!current.length) {
+        const fallback: FormValues["contatos"] = [
+          { nome: "", email: "", telefone: "", celular: "", padrao: true }
+        ];
+        setValue("contatos", fallback, { shouldValidate: false });
+        return fallback;
+      }
+      const hasDefault = current.some((contact) => contact?.padrao);
+      if (!hasDefault) {
+        const updated = current.map((contact, index) => ({ ...contact, padrao: index === 0 }));
+        setValue("contatos", updated, { shouldValidate: false });
+        return updated;
+      }
+      return current;
+    };
+
+    const updateDefaultContact = (updater: (contact: FormValues["contatos"][number]) => FormValues["contatos"][number]) => {
+      const list = ensureContacts();
+      const defaultIndex = list.findIndex((contact) => contact?.padrao);
+      const targetIndex = defaultIndex >= 0 ? defaultIndex : 0;
+      const updatedList = [...list];
+      const original = updatedList[targetIndex] ?? {
+        nome: "",
+        email: "",
+        telefone: "",
+        celular: "",
+        padrao: true
+      };
+      updatedList[targetIndex] = updater({ ...original });
+      setValue("contatos", updatedList, { shouldValidate: true });
+    };
+
     if (data.nome) {
       setFieldIfEmpty("nome_legal", data.nome, { shouldValidate: true });
-      if (tipoPessoa === "PF") {
-        setFieldIfEmpty("contato_nome", data.nome, { shouldValidate: true });
-      }
+      updateDefaultContact((contact) => {
+        if (!isFilledString(contact.nome)) {
+          contact.nome = data.nome ?? contact.nome;
+        }
+        return contact;
+      });
     }
     if (data.nome_social) {
       setValue("nome_fantasia", data.nome_social, { shouldValidate: false });
     }
     if (data.email) {
-      const emailEntries = watch("comunicacao_emails");
-      const hasEmail = emailEntries?.some((entry) => entry?.endereco && entry.endereco.trim());
-      if (!hasEmail) {
-        replaceEmails([{ endereco: data.email, padrao: true }]);
-      }
-      setFieldIfEmpty("contato_email", data.email, { shouldValidate: true });
+      updateDefaultContact((contact) => {
+        if (!isFilledString(contact.email)) {
+          contact.email = data.email ?? contact.email;
+        }
+        return contact;
+      });
     }
     if (data.telefone) {
-      setFieldIfEmpty("telefone", data.telefone);
-      setFieldIfEmpty("contato_fone", data.telefone);
+      updateDefaultContact((contact) => {
+        if (!isFilledString(contact.telefone)) {
+          contact.telefone = data.telefone ?? contact.telefone;
+        }
+        if (!isFilledString(contact.celular)) {
+          contact.celular = data.telefone ?? contact.celular;
+        }
+        return contact;
+      });
     }
     if (data.inscricao_estadual) {
       setFieldIfEmpty("ie", data.inscricao_estadual);
@@ -440,6 +611,8 @@ export default function NewPartner() {
       const { cep, logradouro, numero, complemento, bairro, municipio, municipio_ibge, uf } = data.endereco;
       if (typeof cep === "string") {
         setValue("cep", cep, { shouldValidate: true });
+        setLastFetchedCep(onlyDigits(cep));
+        setCepError(null);
       }
       if (typeof logradouro === "string") {
         setValue("logradouro", logradouro.toUpperCase(), { shouldValidate: true });
@@ -479,6 +652,7 @@ export default function NewPartner() {
     try {
       const token = localStorage.getItem("mdmToken");
       if (!token) {
+        setDocError("Sessão expirada. Faça login novamente.");
         router.replace("/login");
         return;
       }
@@ -490,8 +664,7 @@ export default function NewPartner() {
       applyLookupData(data);
     } catch (error: any) {
       if (error?.response?.status === 401) {
-        localStorage.removeItem("mdmToken");
-        router.replace("/login");
+        setDocError("Você não possui permissão ou a sessão expirou para consultar este documento.");
         return;
       }
       const message = error?.response?.data?.message;
@@ -501,51 +674,67 @@ export default function NewPartner() {
     }
   };
 
-  const handleLookupCep = async () => {
-    if (cepLoading) return;
+  const handleLookupCep = useCallback(
+    async (forcedDigits?: string) => {
+      if (cepLoading) return;
 
-    const rawCep = watch("cep") || "";
-    const digits = onlyDigits(rawCep);
-
-    if (digits.length !== 8) {
-      setCepError("CEP inválido.");
-      return;
-    }
-
-    setCepError(null);
-    setCepLoading(true);
-
-    try {
-      const response = await axios.get<ViaCepResponse>(`https://brasilapi.com.br/api/cep/v2/${digits}`);
-      const data = response.data;
-
-      if (!data || !data.cep) {
-        setCepError("CEP inválido.");
+      const rawCep = forcedDigits ?? onlyDigits(getValues("cep") || "");
+      if (rawCep.length !== 8) {
+        return;
+      }
+      if (rawCep === lastFetchedCep) {
         return;
       }
 
-      const street = data.street?.trim();
-      const neighborhood = data.neighborhood?.trim();
-      const city = data.city?.trim();
-      const state = data.state?.trim();
-      const cityIbge = data.city_ibge ? `${data.city_ibge}` : undefined;
+      setCepError(null);
+      setCepLoading(true);
 
-      setValue("cep", data.cep, { shouldValidate: true });
-      if (street) setValue("logradouro", street.toUpperCase(), { shouldValidate: true });
-      if (neighborhood) setValue("bairro", neighborhood.toUpperCase(), { shouldValidate: true });
-      if (city) setValue("municipio", city.toUpperCase(), { shouldValidate: true });
-      setValue("municipio_ibge", cityIbge, { shouldValidate: true });
-      if (state) setValue("uf", state.toUpperCase().slice(0, 2), { shouldValidate: true });
-    } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 404) {
-        setCepError("CEP inválido.");
-        return;
+      try {
+        const response = await axios.get<ViaCepResponse>(`https://brasilapi.com.br/api/cep/v2/${rawCep}`);
+        const data = response.data;
+
+        if (!data || !data.cep) {
+          setCepError("CEP não localizado.");
+          return;
+        }
+
+        const street = data.street?.trim();
+        const neighborhood = data.neighborhood?.trim();
+        const city = data.city?.trim();
+        const state = data.state?.trim();
+        const cityIbge = data.city_ibge ? `${data.city_ibge}` : undefined;
+
+        setValue("cep", data.cep, { shouldValidate: true });
+        if (street) setValue("logradouro", street.toUpperCase(), { shouldValidate: true });
+        if (neighborhood) setValue("bairro", neighborhood.toUpperCase(), { shouldValidate: true });
+        if (city) setValue("municipio", city.toUpperCase(), { shouldValidate: true });
+        setValue("municipio_ibge", cityIbge, { shouldValidate: true });
+        if (state) setValue("uf", state.toUpperCase().slice(0, 2), { shouldValidate: true });
+        setLastFetchedCep(rawCep);
+      } catch (error) {
+        if (axios.isAxiosError(error) && error.response?.status === 404) {
+          setCepError("CEP não localizado.");
+          return;
+        }
+        setCepError("Não foi possível buscar o CEP. Verifique e tente novamente.");
+      } finally {
+        setCepLoading(false);
       }
-      setCepError("CEP inválido.");
-    } finally {
-      setCepLoading(false);
+    },
+    [cepLoading, getValues, lastFetchedCep, setValue]
+  );
+
+  useEffect(() => {
+    const digits = onlyDigits(cepValue || "");
+    if (digits.length < 8) {
+      if (cepError) {
+        setCepError(null);
+      }
     }
-  };
+    if (digits.length === 8) {
+      handleLookupCep(digits);
+    }
+  }, [cepError, cepValue, handleLookupCep]);
 
   const onSubmit = async (values: FormValues) => {
     setSubmitError(null);
@@ -568,9 +757,6 @@ export default function NewPartner() {
     const inscricaoMunicipal = sanitize(values.im);
     const regimeTributario = sanitize(values.regime_tributario);
     const suframa = sanitize(values.suframa);
-    const telefone = sanitize(values.telefone);
-    const celular = sanitize(values.celular);
-    const contatoFone = sanitize(values.contato_fone);
     const complemento = sanitize(values.complemento);
     const municipioIbge = sanitize(values.municipio_ibge);
     const municipioValor = values.municipio.trim();
@@ -588,6 +774,30 @@ export default function NewPartner() {
     const creditoMontanteRaw = sanitize(values.credito_montante);
     const creditoValidade = sanitize(values.credito_validade);
 
+    const contatos = values.contatos ?? [];
+    const defaultContactIndex = contatos.findIndex((contact) => contact?.padrao);
+    const resolvedDefaultIndex = defaultContactIndex >= 0 ? defaultContactIndex : 0;
+    const defaultContact = contatos[resolvedDefaultIndex];
+
+    const contatoPrincipal = {
+      nome: defaultContact?.nome?.trim() ?? "",
+      email: defaultContact?.email?.trim() ?? "",
+      ...(sanitize(defaultContact?.telefone) ? { fone: sanitize(defaultContact?.telefone)! } : {})
+    };
+
+    const telefonePrincipal = sanitize(defaultContact?.telefone);
+    const celularPrincipal = sanitize(defaultContact?.celular);
+    const emailEntries: Array<{ endereco: string; padrao: boolean }> = [];
+    const emailSet = new Set<string>();
+    contatos.forEach((contact, index) => {
+      const endereco = sanitize(contact?.email);
+      if (!endereco || emailSet.has(endereco)) {
+        return;
+      }
+      emailSet.add(endereco);
+      emailEntries.push({ endereco, padrao: contact?.padrao ?? index === resolvedDefaultIndex });
+    });
+
     const payload = {
       tipo_pessoa: values.tipo_pessoa,
       natureza: values.natureza,
@@ -604,18 +814,11 @@ export default function NewPartner() {
         : {
             ...(suframa ? { suframa } : {})
           }),
-      contato_principal: {
-        nome: values.contato_nome.trim(),
-        email: values.contato_email.trim(),
-        ...(contatoFone ? { fone: contatoFone } : {})
-      },
+      contato_principal: contatoPrincipal,
       comunicacao: {
-        ...(telefone ? { telefone } : {}),
-        ...(celular ? { celular } : {}),
-        emails: values.comunicacao_emails.map((email, index) => ({
-          endereco: email.endereco.trim(),
-          padrao: email.padrao ?? index === 0
-        }))
+        ...(telefonePrincipal ? { telefone: telefonePrincipal } : {}),
+        ...(celularPrincipal ? { celular: celularPrincipal } : {}),
+        ...(emailEntries.length ? { emails: emailEntries } : {})
       },
       addresses: [
         {
@@ -713,9 +916,9 @@ export default function NewPartner() {
 
         <form
           onSubmit={handleSubmit(onSubmit)}
-          className="grid gap-6 lg:grid-cols-[minmax(0,260px),1fr] lg:items-start"
+          className="grid gap-6 lg:h-[calc(100vh-220px)] lg:grid-cols-[minmax(0,260px),1fr] lg:items-start lg:overflow-hidden"
         >
-          <aside className="lg:sticky lg:top-6">
+          <aside className="lg:self-start">
             <nav
               aria-label="Etapas do cadastro"
               className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm lg:border-none lg:bg-transparent lg:p-0 lg:shadow-none"
@@ -777,7 +980,7 @@ export default function NewPartner() {
             </nav>
           </aside>
 
-          <div className="space-y-6">
+          <div className="space-y-6 lg:h-full lg:overflow-y-auto lg:pr-4">
             <section id="classificacao" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Classificação</h2>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -859,31 +1062,24 @@ export default function NewPartner() {
               <div className="mt-4 grid gap-4 md:grid-cols-6">
                 <div className="md:col-span-2">
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">CEP</label>
-                  <div className="flex gap-2">
-                    <input
-                      {...register("cep")}
-                      className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                      placeholder="00000-000"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleLookupCep}
-                      disabled={cepLoading}
-                      className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors disabled:cursor-not-allowed disabled:opacity-60 hover:border-zinc-300 hover:bg-zinc-50"
-                    >
-                      {cepLoading ? "Buscando..." : "Buscar CEP"}
-                    </button>
-                  </div>
+                  <input
+                    {...register("cep")}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="00000-000"
+                    inputMode="numeric"
+                    aria-describedby="cep-helper"
+                  />
                   {renderError("cep")}
+                  <div id="cep-helper" className="mt-1 text-xs text-zinc-500">
+                    {cepLoading ? "Buscando endereço pelo CEP..." : "Informe o CEP para preencher automaticamente os demais campos."}
+                  </div>
                   {cepError && <p className="mt-1 text-sm text-red-600">{cepError}</p>}
                 </div>
                 <div className="md:col-span-4">
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Logradouro</label>
                   <input
                     {...register("logradouro")}
-                    readOnly
-                    aria-readonly="true"
-                    className={readOnlyAddressInputClass}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                     placeholder="Rua, avenida..."
                   />
                   {renderError("logradouro")}
@@ -903,9 +1099,7 @@ export default function NewPartner() {
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Bairro</label>
                   <input
                     {...register("bairro")}
-                    readOnly
-                    aria-readonly="true"
-                    className={readOnlyAddressInputClass}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                   />
                   {renderError("bairro")}
                 </div>
@@ -913,9 +1107,7 @@ export default function NewPartner() {
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">UF</label>
                   <input
                     {...register("uf")}
-                    readOnly
-                    aria-readonly="true"
-                    className={`${readOnlyAddressInputClass} uppercase`}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm uppercase"
                     placeholder="UF"
                   />
                   {renderError("uf")}
@@ -926,9 +1118,7 @@ export default function NewPartner() {
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Município</label>
                   <input
                     {...register("municipio")}
-                    readOnly
-                    aria-readonly="true"
-                    className={readOnlyAddressInputClass}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                   />
                   {renderError("municipio")}
                 </div>
@@ -936,9 +1126,7 @@ export default function NewPartner() {
                   <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Código IBGE</label>
                   <input
                     {...register("municipio_ibge")}
-                    readOnly
-                    aria-readonly="true"
-                    className={readOnlyAddressInputClass}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                     placeholder="Opcional"
                   />
                   {renderError("municipio_ibge")}
@@ -946,161 +1134,73 @@ export default function NewPartner() {
               </div>
             </section>
 
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Endereço fiscal</h2>
-            <div className="mt-4 grid gap-4 md:grid-cols-6">
-              <div className="md:col-span-3">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">CEP</label>
-                <div className="flex gap-2">
-                  <input
-                    {...register("cep")}
-                    onBlur={handleLookupCep}
-                    placeholder="00000-000"
-                    className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleLookupCep}
-                    disabled={cepLoading}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors disabled:cursor-not-allowed disabled:opacity-60 hover:border-zinc-300 hover:bg-zinc-50"
-                  >
-                    {cepLoading ? "Buscando..." : "Buscar CEP"}
-                  </button>
-                </div>
-                {renderError("cep")}
-                {cepError && <p className="mt-1 text-sm text-red-600">{cepError}</p>}
-              </div>
-              <div className="md:col-span-3">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Logradouro</label>
-                <input
-                  {...register("logradouro")}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  placeholder="Rua, avenida..."
-                />
-                {renderError("logradouro")}
-              </div>
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-6">
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Número</label>
-                <input
-                  {...register("numero")}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  placeholder="000"
-                />
-                {renderError("numero")}
-              </div>
-              <div className="md:col-span-4">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Complemento</label>
-                <input
-                  {...register("complemento")}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  placeholder="Apartamento, sala..."
-                />
-              </div>
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-6">
-              <div className="md:col-span-3">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Bairro</label>
-                <input
-                  {...register("bairro")}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  placeholder="Bairro"
-                />
-                {renderError("bairro")}
-              </div>
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Município</label>
-                <input
-                  {...register("municipio")}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  placeholder="Cidade"
-                />
-                {renderError("municipio")}
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">UF</label>
-                <input
-                  {...register("uf")}
-                  maxLength={2}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm uppercase"
-                  placeholder="UF"
-                />
-                {renderError("uf")}
-              </div>
-            </div>
-            <input type="hidden" {...register("municipio_ibge")} />
-            {renderError("municipio_ibge")}
-          </section>
+          
 
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <section id="contato" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Comunicação</h2>
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Contatos</h2>
+              <button
+                type="button"
+                onClick={openNewContactModal}
+                className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+              >
+                Adicionar contato
+              </button>
             </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone</label>
-                <input {...register("telefone")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 0000-0000" />
-              </div>
-              <div className="mt-4 grid gap-4 md:grid-cols-3 md:mt-0">
-                <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone do responsável</label>
-                  <input {...register("contato_fone")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 0000-0000" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone geral</label>
-                  <input {...register("telefone")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 0000-0000" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Celular</label>
-                  <input {...register("celular")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 00000-0000" />
-                </div>
-              </div>
-              <div className="mt-6 md:col-span-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Emails</span>
-                  <button
-                    type="button"
-                    onClick={() => appendEmail({ endereco: "", padrao: emailFields.length === 0 })}
-                    className="text-sm font-medium text-zinc-600 hover:text-zinc-900"
-                  >
-                    Adicionar email
-                  </button>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {emailFields.map((field, index) => (
-                    <div key={field.id} className="grid gap-3 md:grid-cols-12 md:items-center">
-                      <div className="md:col-span-6">
-                        <input
-                          {...register(`comunicacao_emails.${index}.endereco` as const)}
-                          className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                          placeholder="email@empresa.com"
-                        />
-                        {renderError(`comunicacao_emails.${index}.endereco`)}
+            <p className="mt-2 text-xs text-zinc-500">
+              Cadastre ao menos um contato padrão com nome, email e telefones para comunicações sobre o parceiro.
+            </p>
+            <div className="mt-4 space-y-3">
+              {contacts.length ? (
+                contacts.map((contact, index) => (
+                  <div key={`contato-${index}`} className="rounded-xl border border-zinc-200 p-4">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-zinc-900">{contact.nome || "Contato sem nome"}</p>
+                        <p className="text-sm text-zinc-600">{contact.email}</p>
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
+                          {contact.telefone ? <span>Telefone: {contact.telefone}</span> : null}
+                          {contact.celular ? <span>Celular: {contact.celular}</span> : null}
+                        </div>
                       </div>
-                      <div className="md:col-span-3 flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          {...register(`comunicacao_emails.${index}.padrao` as const)}
-                          className="h-4 w-4 rounded border border-zinc-300"
-                        />
-                        <span className="text-sm text-zinc-600">Email padrão</span>
-                      </div>
-                      <div className="md:col-span-3 flex justify-end">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {contact.padrao ? (
+                          <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">Contato padrão</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleSetDefaultContact(index)}
+                            className="text-xs font-medium text-emerald-600 transition-colors hover:text-emerald-700"
+                          >
+                            Definir como padrão
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => removeEmail(index)}
-                          className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-50"
-                          disabled={emailFields.length === 1}
+                          onClick={() => openEditContactModal(index)}
+                          className="rounded-lg border border-zinc-200 px-3 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveContact(index)}
+                          disabled={contacts.length <= 1}
+                          className="rounded-lg border border-red-200 px-3 py-1 text-xs font-medium text-red-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50 hover:border-red-300 hover:bg-red-50"
                         >
                           Remover
                         </button>
                       </div>
                     </div>
-                  ))}
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-500">
+                  Nenhum contato cadastrado. Clique em “Adicionar contato” para registrar o primeiro contato padrão.
                 </div>
-              </div>
+              )}
             </div>
+            {renderError("contatos")}
           </section>
 
             <section id="financeiro" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -1288,6 +1388,95 @@ export default function NewPartner() {
           </div>
         </form>
       </div>
+      {contactModalState.open ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900">
+                  {contactModalState.index === null ? "Adicionar contato" : "Editar contato"}
+                </h2>
+                <p className="text-sm text-zinc-500">Informe os dados do contato e escolha se ele será o padrão.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeContactModal}
+                className="rounded-lg border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-500 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+              >
+                Fechar
+              </button>
+            </div>
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Nome</label>
+                <input
+                  value={contactDraft.nome ?? ""}
+                  onChange={(event) => handleContactDraftChange("nome", event.target.value)}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder="Nome completo"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Email</label>
+                <input
+                  type="email"
+                  value={contactDraft.email ?? ""}
+                  onChange={(event) => handleContactDraftChange("email", event.target.value)}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder="email@empresa.com"
+                />
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone</label>
+                  <input
+                    value={contactDraft.telefone ?? ""}
+                    onChange={(event) => handleContactDraftChange("telefone", event.target.value)}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="(00) 0000-0000"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Celular</label>
+                  <input
+                    value={contactDraft.celular ?? ""}
+                    onChange={(event) => handleContactDraftChange("celular", event.target.value)}
+                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    placeholder="(00) 00000-0000"
+                  />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-zinc-600">
+                <input
+                  type="checkbox"
+                  checked={Boolean(contactDraft.padrao) || contacts.length === 0}
+                  disabled={contacts.length === 0 && contactModalState.index === null}
+                  onChange={(event) => handleContactDraftChange("padrao", event.target.checked)}
+                  className="h-4 w-4 rounded border border-zinc-300"
+                />
+                Contato padrão
+              </label>
+              {contactModalError ? <p className="text-sm text-red-600">{contactModalError}</p> : null}
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeContactModal}
+                className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveContact}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              >
+                Salvar contato
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

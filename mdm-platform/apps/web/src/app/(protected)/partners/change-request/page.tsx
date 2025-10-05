@@ -182,7 +182,9 @@ export default function ChangeRequestPage() {
   const searchParams = useSearchParams();
   const partnerId = searchParams.get("partner");
 
-  const [mode, setMode] = useState<Mode>("individual");
+  const modeParam = searchParams.get("mode");
+  const initialMode: Mode = modeParam === "massa" ? "massa" : "individual";
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [origin, setOrigin] = useState<(typeof originOptions)[number]["value"]>(originOptions[0]?.value ?? "interno");
   const [fields, setFields] = useState(buildEmptyFieldState);
   const [fieldErrors, setFieldErrors] = useState(buildEmptyFieldErrors);
@@ -207,6 +209,10 @@ export default function ChangeRequestPage() {
     () => parseBulkInput(bulkInput, mode === "massa" ? partnerId : undefined),
     [bulkInput, mode, partnerId]
   );
+
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
 
   const loadPartner = useCallback(async () => {
     if (!partnerId) {
@@ -558,6 +564,23 @@ export default function ChangeRequestPage() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-zinc-100 p-6 text-sm text-zinc-600">
         Carregando parceiro...
+      </main>
+    );
+  }
+
+  if (partnerError && !partnerId) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-zinc-100 p-6">
+        <div className="flex flex-col gap-4 rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-700">
+          <p>{partnerError}</p>
+          <button
+            type="button"
+            onClick={() => router.push("/change-requests")}
+            className="self-start rounded-lg border border-amber-300 px-3 py-1 text-xs font-medium text-amber-700 transition-colors hover:border-amber-400 hover:bg-amber-100"
+          >
+            Voltar para solicitações
+          </button>
+        </div>
       </main>
     );
   }
