@@ -151,6 +151,184 @@ export default function NewPartner() {
 
   const natureza = watch("natureza");
   const tipoPessoa = watch("tipo_pessoa");
+  const formValues = watch();
+
+  const natureLabels: Record<FormValues["natureza"], string> = {
+    cliente: "Cliente",
+    fornecedor: "Fornecedor",
+    ambos: "Cliente e fornecedor"
+  };
+
+  const getErrorAtPath = (fieldPath: string) => {
+    const segments = fieldPath.split(".") as any;
+    let current: any = errors;
+    for (const segment of segments) {
+      if (!current) break;
+      current = current[segment];
+    }
+    return current ?? null;
+  };
+
+  const isFilledString = (value: unknown) => {
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+    return Boolean(value);
+  };
+
+  const emails = formValues?.comunicacao_emails ?? [];
+  const banks = formValues?.banks ?? [];
+  const transporters = formValues?.transportadores ?? [];
+
+  const hasAnyError = (paths: string[]) => paths.some((path) => Boolean(getErrorAtPath(path)));
+
+  const timelineSteps = useMemo(() => {
+    const typeLabel = tipoPessoa === "PJ" ? "Pessoa Jurídica" : "Pessoa Física";
+
+    const identificationComplete =
+      isFilledString(formValues?.documento) &&
+      isFilledString(formValues?.nome_legal) &&
+      !hasAnyError(["documento", "nome_legal"]);
+
+    const addressComplete =
+      ["cep", "logradouro", "numero", "bairro", "municipio", "uf"].every((field) =>
+        isFilledString((formValues as any)?.[field])
+      ) && !hasAnyError(["cep", "logradouro", "numero", "bairro", "municipio", "uf", "municipio_ibge"]);
+
+    const contactEmailsComplete =
+      emails.length > 0 &&
+      emails.every((email) => isFilledString(email?.endereco)) &&
+      !hasAnyError(["comunicacao_emails"]);
+
+    const contactComplete =
+      isFilledString(formValues?.contato_nome) &&
+      isFilledString(formValues?.contato_email) &&
+      contactEmailsComplete &&
+      !hasAnyError(["contato_nome", "contato_email"]);
+
+    const financeComplete =
+      banks.length > 0 &&
+      banks.every((bank) => isFilledString(bank?.banco) && isFilledString(bank?.agencia) && isFilledString(bank?.conta)) &&
+      !hasAnyError(["banks"]);
+
+    const fornecedorComplete = !requiresFornecedor
+      ? true
+      : isFilledString(formValues?.fornecedor_grupo) &&
+        isFilledString(formValues?.fornecedor_condicao) &&
+        !hasAnyError(["fornecedor_grupo", "fornecedor_condicao"]);
+
+    const vendasComplete = !requiresCliente
+      ? true
+      : isFilledString(formValues?.vendas_vendedor) &&
+        isFilledString(formValues?.vendas_grupo) &&
+        !hasAnyError(["vendas_vendedor", "vendas_grupo"]);
+
+    const fiscalComplete = !hasAnyError([
+      "fiscal_natureza_operacao",
+      "fiscal_tipo_beneficio",
+      "fiscal_regime_declaracao"
+    ]);
+
+    const transportComplete =
+      (transporters.length === 0 || transporters.every((item) => isFilledString(item?.sap_bp))) &&
+      !hasAnyError(["transportadores"]);
+
+    const creditComplete = !hasAnyError([
+      "credito_parceiro",
+      "credito_modalidade",
+      "credito_montante",
+      "credito_validade"
+    ]);
+
+    const steps = [
+      {
+        id: "classificacao",
+        label: "Natureza",
+        description: `${typeLabel} · ${natureLabels[natureza] ?? "Selecionar"}`,
+        completed: !hasAnyError(["tipo_pessoa", "natureza"])
+      },
+      {
+        id: "identificacao",
+        label: "Identificação",
+        description: "Documentos e dados legais",
+        completed: identificationComplete
+      },
+      {
+        id: "endereco",
+        label: "Endereço",
+        description: "Localização e CEP",
+        completed: addressComplete
+      },
+      {
+        id: "contato",
+        label: "Contato",
+        description: "Responsável e comunicação",
+        completed: contactComplete
+      },
+      {
+        id: "financeiro",
+        label: "Financeiro",
+        description: "Contas bancárias",
+        completed: financeComplete
+      }
+    ];
+
+    if (requiresFornecedor) {
+      steps.push({
+        id: "fornecedor",
+        label: "Fornecimento",
+        description: "Dados de fornecedor",
+        completed: fornecedorComplete
+      });
+    }
+
+    if (requiresCliente) {
+      steps.push({
+        id: "vendas",
+        label: "Vendas",
+        description: "Informações comerciais",
+        completed: vendasComplete
+      });
+    }
+
+    steps.push(
+      {
+        id: "fiscal",
+        label: "Fiscal",
+        description: "Regras fiscais",
+        completed: fiscalComplete
+      },
+      {
+        id: "transporte",
+        label: "Transporte",
+        description: "Transportadores",
+        completed: transportComplete
+      },
+      {
+        id: "credito",
+        label: "Crédito",
+        description: "Limites e condições",
+        completed: creditComplete
+      }
+    );
+
+    return steps;
+  }, [
+    banks,
+    emails,
+    errors,
+    formValues,
+    natureza,
+    requiresCliente,
+    requiresFornecedor,
+    tipoPessoa,
+    transporters
+  ]);
+
+  const activeStepId = useMemo(
+    () => timelineSteps.find((step) => !step.completed)?.id ?? timelineSteps[timelineSteps.length - 1]?.id,
+    [timelineSteps]
+  );
 
   const {
     fields: emailFields,
@@ -353,330 +531,460 @@ export default function NewPartner() {
 
   return (
     <main className="p-6">
-      <div className="mx-auto w-full max-w-5xl space-y-6">
+      <div className="mx-auto w-full max-w-6xl space-y-6">
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold text-zinc-900">Novo Parceiro</h1>
           <p className="text-sm text-zinc-500">Preencha todas as informações necessárias para integrar o parceiro ao SAP.</p>
         </header>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Classificação</h2>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Tipo de pessoa</label>
-                <select {...register("tipo_pessoa")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm">
-                  <option value="PJ">Pessoa Jurídica</option>
-                  <option value="PF">Pessoa Física</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Natureza</label>
-                <select {...register("natureza")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm">
-                  <option value="cliente">Cliente</option>
-                  <option value="fornecedor">Fornecedor</option>
-                  <option value="ambos">Ambos</option>
-                </select>
-              </div>
-            </div>
-          </section>
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="grid gap-6 lg:grid-cols-[minmax(0,260px),1fr] lg:items-start"
+        >
+          <aside className="lg:sticky lg:top-6">
+            <nav
+              aria-label="Etapas do cadastro"
+              className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm lg:border-none lg:bg-transparent lg:p-0 lg:shadow-none"
+            >
+              <ol className="flex gap-4 overflow-x-auto lg:flex-col lg:gap-6 lg:overflow-visible">
+                {timelineSteps.map((step, index) => {
+                  const isActive = activeStepId === step.id;
+                  const isCompleted = step.completed;
+                  const indicatorClass = isCompleted
+                    ? "border-emerald-500 bg-emerald-500 text-white"
+                    : isActive
+                    ? "border-zinc-900 text-zinc-900"
+                    : "border-zinc-300 bg-white text-zinc-400";
+                  const labelClass = isCompleted
+                    ? "text-emerald-700"
+                    : isActive
+                    ? "text-zinc-900"
+                    : "text-zinc-600";
 
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Identificação</h2>
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Documento</label>
-                <div className="flex gap-2">
-                  <input
-                    {...register("documento")}
-                    placeholder={tipoPessoa === "PJ" ? "CNPJ" : "CPF"}
-                    className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
+                  return (
+                    <li key={step.id} className="flex-shrink-0 lg:flex-shrink">
+                      <a
+                        href={`#${step.id}`}
+                        aria-label={`Etapa ${index + 1}: ${step.label}`}
+                        aria-current={isActive ? "step" : undefined}
+                        className={`flex min-w-[160px] items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 lg:w-full lg:min-w-0 lg:rounded-lg ${
+                          isActive ? "bg-white shadow-sm lg:bg-zinc-50" : "hover:bg-white/70"
+                        }`}
+                      >
+                        <span
+                          className={`flex h-6 w-6 items-center justify-center rounded-full border text-xs font-semibold ${indicatorClass}`}
+                          aria-hidden="true"
+                        >
+                          {isCompleted ? (
+                            <svg className="h-3 w-3" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                              <path
+                                d="M5 10.5l3 3 7-7"
+                                stroke="currentColor"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          ) : (
+                            index + 1
+                          )}
+                        </span>
+                        <span className="flex flex-col">
+                          <span className={`text-sm font-medium ${labelClass}`}>{step.label}</span>
+                          {step.description && (
+                            <span className="text-xs text-zinc-500">{step.description}</span>
+                          )}
+                        </span>
+                      </a>
+                    </li>
+                  );
+                })}
+              </ol>
+            </nav>
+          </aside>
+
+          <div className="space-y-6">
+            <section id="classificacao" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Classificação</h2>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Tipo de pessoa</label>
+                  <select {...register("tipo_pessoa")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm">
+                    <option value="PJ">Pessoa Jurídica</option>
+                    <option value="PF">Pessoa Física</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Natureza</label>
+                  <select {...register("natureza")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm">
+                    <option value="cliente">Cliente</option>
+                    <option value="fornecedor">Fornecedor</option>
+                    <option value="ambos">Ambos</option>
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            <section id="identificacao" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Identificação</h2>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <div className="md:col-span-2">
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Documento</label>
+                  <div className="flex gap-2">
+                    <input
+                      {...register("documento")}
+                      placeholder={tipoPessoa === "PJ" ? "CNPJ" : "CPF"}
+                      className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleLookupDocumento}
+                      disabled={docLoading}
+                      className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors disabled:cursor-not-allowed disabled:opacity-60 hover:border-zinc-300 hover:bg-zinc-50"
+                    >
+                      {docLoading ? "Buscando..." : `Buscar ${tipoPessoa === "PJ" ? 'CNPJ' : 'CPF'}`}
+                    </button>
+                  </div>
+                  {renderError("documento")}
+                  {docError && <p className="mt-1 text-sm text-red-600">{docError}</p>}
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Inscrição Estadual</label>
+                  <input {...register("ie")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
+                </div>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Nome legal</label>
+                  <input {...register("nome_legal")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Razão social / Nome completo" />
+                  {renderError("nome_legal")}
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Nome fantasia</label>
+                  <input {...register("nome_fantasia")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
+                </div>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Inscrição Municipal</label>
+                  <input {...register("im")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">SUFRAMA</label>
+                  <input {...register("suframa")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Regime tributário</label>
+                  <input {...register("regime_tributario")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Simples, Lucro Presumido..." />
+                </div>
+              </div>
+            </section>
+
+            <section id="endereco" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Endereço</h2>
+              <div className="mt-4 grid gap-4 md:grid-cols-6">
+                <div className="md:col-span-2">
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">CEP</label>
+                  <input {...register("cep")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="00000-000" />
+                  {renderError("cep")}
+                </div>
+                <div className="md:col-span-4">
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Logradouro</label>
+                  <input {...register("logradouro")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Rua, avenida..." />
+                  {renderError("logradouro")}
+                </div>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-4">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Número</label>
+                  <input {...register("numero")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Nº" />
+                  {renderError("numero")}
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Complemento</label>
+                  <input {...register("complemento")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Bairro</label>
+                  <input {...register("bairro")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                  {renderError("bairro")}
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">UF</label>
+                  <input {...register("uf")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm uppercase" placeholder="UF" />
+                  {renderError("uf")}
+                </div>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Município</label>
+                  <input {...register("municipio")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                  {renderError("municipio")}
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Código IBGE</label>
+                  <input {...register("municipio_ibge")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
+                  {renderError("municipio_ibge")}
+                </div>
+              </div>
+            </section>
+
+            <section id="contato" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Contato</h2>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Responsável</label>
+                  <input {...register("contato_nome")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Nome completo" />
+                  {renderError("contato_nome")}
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Email do responsável</label>
+                  <input {...register("contato_email")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="responsavel@empresa.com" />
+                  {renderError("contato_email")}
+                </div>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone do responsável</label>
+                  <input {...register("contato_fone")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 0000-0000" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone geral</label>
+                  <input {...register("telefone")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 0000-0000" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Celular</label>
+                  <input {...register("celular")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 00000-0000" />
+                </div>
+              </div>
+              <div className="mt-6">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Emails</span>
                   <button
                     type="button"
-                    onClick={handleLookupDocumento}
-                    disabled={docLoading}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 transition-colors disabled:cursor-not-allowed disabled:opacity-60 hover:border-zinc-300 hover:bg-zinc-50"
+                    onClick={() => appendEmail({ endereco: "", padrao: emailFields.length === 0 })}
+                    className="text-sm font-medium text-zinc-600 hover:text-zinc-900"
                   >
-                    {docLoading ? "Buscando..." : `Buscar ${tipoPessoa === "PJ" ? 'CNPJ' : 'CPF'}`}
+                    Adicionar email
                   </button>
                 </div>
-                {renderError("documento")}
-                {docError && <p className="mt-1 text-sm text-red-600">{docError}</p>}
+                <div className="mt-3 space-y-2">
+                  {emailFields.map((field, index) => (
+                    <div key={field.id} className="grid gap-3 md:grid-cols-12 md:items-center">
+                      <div className="md:col-span-6">
+                        <input
+                          {...register(`comunicacao_emails.${index}.endereco` as const)}
+                          className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                          placeholder="email@empresa.com"
+                        />
+                        {renderError(`comunicacao_emails.${index}.endereco`)}
+                      </div>
+                      <div className="md:col-span-3 flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          {...register(`comunicacao_emails.${index}.padrao` as const)}
+                          className="h-4 w-4 rounded border border-zinc-300"
+                        />
+                        <span className="text-sm text-zinc-600">Email padrão</span>
+                      </div>
+                      <div className="md:col-span-3 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => removeEmail(index)}
+                          className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-50"
+                          disabled={emailFields.length === 1}
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Inscrição Estadual</label>
-                <input {...register("ie")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
-              </div>
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Nome legal</label>
-                <input {...register("nome_legal")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Razão social / Nome completo" />
-                {renderError("nome_legal")}
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Nome fantasia</label>
-                <input {...register("nome_fantasia")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
-              </div>
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Inscrição Municipal</label>
-                <input {...register("im")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">SUFRAMA</label>
-                <input {...register("suframa")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Regime tributário</label>
-                <input {...register("regime_tributario")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Simples, Lucro Presumido..." />
-              </div>
-            </div>
-          </section>
+            </section>
 
-          {/* remaining sections unchanged */}          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Comunicação</h2>
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Telefone</label>
-                <input {...register("telefone")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 0000-0000" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Celular</label>
-                <input {...register("celular")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="(00) 00000-0000" />
-              </div>
-            </div>
-            <div className="mt-4">
+            <section id="financeiro" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Emails</span>
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Dados bancários</h2>
                 <button
                   type="button"
-                  onClick={() => appendEmail({ endereco: "", padrao: emailFields.length === 0 })}
+                  onClick={() => appendBank({ banco: "", agencia: "", conta: "", pix: "" })}
                   className="text-sm font-medium text-zinc-600 hover:text-zinc-900"
                 >
-                  Adicionar email
+                  Adicionar conta
                 </button>
               </div>
-              <div className="mt-3 space-y-2">
-                {emailFields.map((field, index) => (
-                  <div key={field.id} className="grid gap-3 md:grid-cols-12 md:items-center">
-                    <div className="md:col-span-6">
-                      <input
-                        {...register(`comunicacao_emails.${index}.endereco` as const)}
-                        className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                        placeholder="email@empresa.com"
-                      />
-                      {renderError(`comunicacao_emails.${index}.endereco`)}
+              <p className="mt-2 text-xs text-zinc-500">Conta bancária deve estar em nome da empresa ou pessoa física cadastrada.</p>
+              <div className="mt-3 space-y-3">
+                {bankFields.map((field, index) => (
+                  <div key={field.id} className="rounded-xl border border-zinc-200 p-4">
+                    <div className="grid gap-4 md:grid-cols-4">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Banco</label>
+                        <input {...register(`banks.${index}.banco` as const)} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                        {renderError(`banks.${index}.banco`)}
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Agência</label>
+                        <input {...register(`banks.${index}.agencia` as const)} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                        {renderError(`banks.${index}.agencia`)}
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Conta</label>
+                        <input {...register(`banks.${index}.conta` as const)} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                        {renderError(`banks.${index}.conta`)}
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Chave PIX</label>
+                        <input {...register(`banks.${index}.pix` as const)} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
+                      </div>
                     </div>
-                    <div className="md:col-span-3 flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        {...register(`comunicacao_emails.${index}.padrao` as const)}
-                        className="h-4 w-4 rounded border border-zinc-300"
-                      />
-                      <span className="text-sm text-zinc-600">Email padrão</span>
-                    </div>
-                    <div className="md:col-span-3 flex justify-end">
+                    <div className="mt-3 flex justify-end">
                       <button
                         type="button"
-                        onClick={() => removeEmail(index)}
+                        onClick={() => removeBank(index)}
                         className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-50"
-                        disabled={emailFields.length === 1}
+                        disabled={bankFields.length === 1}
                       >
-                        Remover
+                        Remover conta
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
-          </section>
+            </section>
 
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Dados bancários</h2>
-              <button
-                type="button"
-                onClick={() => appendBank({ banco: "", agencia: "", conta: "", pix: "" })}
-                className="text-sm font-medium text-zinc-600 hover:text-zinc-900"
-              >
-                Adicionar conta
-              </button>
-            </div>
-            <p className="mt-2 text-xs text-zinc-500">Conta bancária deve estar em nome da empresa ou pessoa física cadastrada.</p>
-            <div className="mt-3 space-y-3">
-              {bankFields.map((field, index) => (
-                <div key={field.id} className="rounded-xl border border-zinc-200 p-4">
-                  <div className="grid gap-4 md:grid-cols-4">
-                    <div>
-                      <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Banco</label>
-                      <input {...register(`banks.${index}.banco` as const)} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
-                      {renderError(`banks.${index}.banco`)}
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Agência</label>
-                      <input {...register(`banks.${index}.agencia` as const)} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
-                      {renderError(`banks.${index}.agencia`)}
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Conta</label>
-                      <input {...register(`banks.${index}.conta` as const)} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
-                      {renderError(`banks.${index}.conta`)}
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Chave PIX</label>
-                      <input {...register(`banks.${index}.pix` as const)} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
-                    </div>
+            {requiresFornecedor && (
+              <section id="fornecedor" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Informações de fornecimento</h2>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Grupo de fornecedores</label>
+                    <input {...register("fornecedor_grupo")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
                   </div>
-                  <div className="mt-3 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => removeBank(index)}
-                      className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-50"
-                      disabled={bankFields.length === 1}
-                    >
-                      Remover conta
-                    </button>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Condição de pagamento padrão</label>
+                    <input {...register("fornecedor_condicao")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
                   </div>
                 </div>
-              ))}
-            </div>
-          </section>
+              </section>
+            )}
 
-          {requiresFornecedor && (
-            <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Informações de fornecimento</h2>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {requiresCliente && (
+              <section id="vendas" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Informações de vendas</h2>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Vendedor responsável</label>
+                    <input {...register("vendas_vendedor")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Grupo de clientes</label>
+                    <input {...register("vendas_grupo")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                  </div>
+                </div>
+              </section>
+            )}
+
+            <section id="fiscal" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Informações fiscais</h2>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
                 <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Grupo de fornecedores</label>
-                  <input {...register("fornecedor_grupo")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Natureza da operação</label>
+                  <select {...register("fiscal_natureza_operacao")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm">
+                    <option value="">Selecione</option>
+                    <option value="comercializacao">Comercialização</option>
+                    <option value="consumo">Consumo</option>
+                  </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Condição de pagamento padrão</label>
-                  <input {...register("fornecedor_condicao")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Benefício SUFRAMA</label>
+                  <input {...register("fiscal_tipo_beneficio")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Regime de declaração</label>
+                  <input {...register("fiscal_regime_declaracao")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="EFD, Simples, etc." />
                 </div>
               </div>
             </section>
-          )}
 
-          {requiresCliente && (
-            <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Informações de vendas</h2>
+            <section id="transporte" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Informações de transporte</h2>
+                <button
+                  type="button"
+                  onClick={() => appendTransport({ sap_bp: "" })}
+                  className="text-sm font-medium text-zinc-600 hover:text-zinc-900"
+                >
+                  Adicionar BP transportador
+                </button>
+              </div>
+              <div className="mt-4 space-y-2">
+                {transportFields.length ? (
+                  transportFields.map((field, index) => (
+                    <div key={field.id} className="flex items-center gap-3">
+                      <input
+                        {...register(`transportadores.${index}.sap_bp` as const)}
+                        className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                        placeholder="BP SAP transportador"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeTransport(index)}
+                        className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-50"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-zinc-500">Nenhum transportador adicionado.</p>
+                )}
+              </div>
+            </section>
+
+            <section id="credito" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Informações de crédito</h2>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Vendedor responsável</label>
-                  <input {...register("vendas_vendedor")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Parceiro de crédito</label>
+                  <input {...register("credito_parceiro")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Inferior / Dinâmica" />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Grupo de clientes</label>
-                  <input {...register("vendas_grupo")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Modalidade</label>
+                  <input {...register("credito_modalidade")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Inferior ou Dinâmica" />
+                </div>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Montante aprovado</label>
+                  <input {...register("credito_montante")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Ex.: 50000" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Validade</label>
+                  <input type="date" {...register("credito_validade")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
                 </div>
               </div>
             </section>
-          )}
 
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Informações fiscais</h2>
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Natureza da operação</label>
-                <select {...register("fiscal_natureza_operacao")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm">
-                  <option value="">Selecione</option>
-                  <option value="comercializacao">Comercialização</option>
-                  <option value="consumo">Consumo</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Benefício SUFRAMA</label>
-                <input {...register("fiscal_tipo_beneficio")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Opcional" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Regime de declaração</label>
-                <input {...register("fiscal_regime_declaracao")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="EFD, Simples, etc." />
-              </div>
-            </div>
-          </section>
+            {submitError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{submitError}</div>}
 
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Informações de transporte</h2>
+            <div className="flex justify-end gap-3">
               <button
                 type="button"
-                onClick={() => appendTransport({ sap_bp: "" })}
-                className="text-sm font-medium text-zinc-600 hover:text-zinc-900"
+                onClick={() => router.back()}
+                className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
               >
-                Adicionar BP transportador
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-60"
+              >
+                {isSubmitting ? "Salvando..." : "Salvar parceiro"}
               </button>
             </div>
-            <div className="mt-4 space-y-2">
-              {transportFields.length ? (
-                transportFields.map((field, index) => (
-                  <div key={field.id} className="flex items-center gap-3">
-                    <input
-                      {...register(`transportadores.${index}.sap_bp` as const)}
-                      className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                      placeholder="BP SAP transportador"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeTransport(index)}
-                      className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-50"
-                    >
-                      Remover
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-zinc-500">Nenhum transportador adicionado.</p>
-              )}
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Informações de crédito</h2>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Parceiro de crédito</label>
-                <input {...register("credito_parceiro")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Inferior / Dinâmica" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Modalidade</label>
-                <input {...register("credito_modalidade")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Inferior ou Dinâmica" />
-              </div>
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Montante aprovado</label>
-                <input {...register("credito_montante")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Ex.: 50000" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase text-zinc-500">Validade</label>
-                <input type="date" {...register("credito_validade")} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
-              </div>
-            </div>
-          </section>
-
-          {submitError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{submitError}</div>}
-
-          <div className="flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => router.back()}
-              className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-60"
-            >
-              {isSubmitting ? "Salvando..." : "Salvar parceiro"}
-            </button>
           </div>
         </form>
       </div>
